@@ -104,6 +104,29 @@ export async function POST(request: Request) {
     )
   }
 
+  // --- Validação de data e horário ---
+  const today = new Date().toISOString().split("T")[0]
+
+  if (body.date < today) {
+    return NextResponse.json(
+      { error: "Não é possível agendar em datas passadas." },
+      { status: 400 }
+    )
+  }
+
+  if (body.date === today) {
+    const now = new Date()
+    const nowMinutes = now.getHours() * 60 + now.getMinutes()
+    const [h, m] = body.time.split(":").map(Number)
+    const apptMinutes = h * 60 + m
+    if (apptMinutes <= nowMinutes) {
+      return NextResponse.json(
+        { error: "Não é possível agendar para um horário que já passou." },
+        { status: 400 }
+      )
+    }
+  }
+
   // --- Busca agendamentos existentes na mesma data ---
   // Exclui cancelados e concluídos pois não ocupam mais o horário
   const { data: existingAppointments, error: fetchError } = await supabase

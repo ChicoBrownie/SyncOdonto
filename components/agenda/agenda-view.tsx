@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, ChevronLeft, ChevronRight, Clock, Plus, Loader2, AlertCircle } from "lucide-react"
+import { Calendar, ChevronLeft, ChevronRight, Clock, Plus, Loader2, AlertCircle, AlertTriangle } from "lucide-react"
 import { useAppointments, usePatients, createAppointment, updateAppointment } from "@/lib/hooks/use-data"
 import {
   Dialog,
@@ -28,15 +28,62 @@ import { toast } from "sonner"
 import useSWR from "swr"
 import Link from "next/link"
 
+// Horário de fechamento padrão da clínica (caso não venha das configurações)
+const DEFAULT_CLOSING_HOUR = 18
+
+// Converte "HH:MM" ou "HH:MM:SS" em minutos desde meia-noite
+function timeToMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number)
+  return h * 60 + m
+}
+
+// Retorna o status de tempo de um agendamento em relação ao momento atual
+// Só faz sentido para o dia de hoje
+type AppointmentTimeStatus = "ok" | "late" | "missed"
+
+function getAppointmentTimeStatus(
+  appointmentDate: string,
+  appointmentTime: string,
+  closingHour: number
+): AppointmentTimeStatus {
+  const now = new Date()
+  const todayString = now.toISOString().split("T")[0]
+
+  // Só aplica lógica de atraso/falta no dia correto
+  if (appointmentDate !== todayString) {
+    // Dia passado sem iniciar = falta
+    if (appointmentDate < todayString) return "missed"
+    // Dia futuro = ok
+    return "ok"
+  }
+
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const apptMinutes = timeToMinutes(appointmentTime)
+  const closingMinutes = closingHour * 60
+
+  if (nowMinutes >= closingMinutes) return "missed"
+  if (nowMinutes >= apptMinutes + 15) return "late"
+  return "ok"
+}
+
 export function AgendaView() {
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<"day" | "week" | "month">("day")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
-  // Armazena a mensagem de erro de conflito/validação para exibir no formulário
   const [formError, setFormError] = useState<string | null>(null)
+  // Tick a cada minuto para atualizar badges de atraso em tempo real
+  const [, setTick] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 60_000)
+    return () => clearInterval(interval)
+  }, [])
 
   const dateString = selectedDate.toISOString().split("T")[0]
+  const todayString = new Date().toISOString().split("T")[0]
+  const isPastDate = dateString < todayString
+
   const { appointments, isLoading, error, mutate } = useAppointments({ date: dateString })
   const { patients } = usePatients()
 
@@ -51,6 +98,12 @@ export function AgendaView() {
 
   const { data: staffRes } = useSWR("/api/clinic-staff", (url: string) => fetch(url).then(r => r.json()))
   const staff = staffRes?.data || []
+
+  // Busca horário de fechamento da clínica
+  const { data: settingsRes } = useSWR("/api/clinic-settings", (url: string) => fetch(url).then(r => r.json()))
+  const closingHour: number = settingsRes?.data?.working_hours?.end
+    ? parseInt(settingsRes.data.working_hours.end.split(":")[0])
+    : DEFAULT_CLOSING_HOUR
 
   const resetForm = () => {
     setNewAppointment({
@@ -67,26 +120,38 @@ export function AgendaView() {
   const handleCreateAppointment = async () => {
     setFormError(null)
 
-    // Validação client-side antes de chamar a API
     if (!newAppointment.patient_id) {
       setFormError("Selecione um paciente.")
       return
     }
-
     if (!newAppointment.procedure_type) {
       setFormError("Selecione o tipo de procedimento.")
       return
     }
-
     if (!newAppointment.time) {
       setFormError("Informe o horário do agendamento.")
       return
     }
-
-    // Dentista obrigatório
     if (!newAppointment.doctor_name || newAppointment.doctor_name.trim() === "") {
       setFormError("Selecione ou informe o dentista responsável.")
       return
+    }
+
+    // Bloqueia agendamento em data passada
+    if (dateString < todayString) {
+      setFormError("Não é possível agendar em datas passadas.")
+      return
+    }
+
+    // Bloqueia horário que já passou no mesmo dia
+    if (dateString === todayString) {
+      const now = new Date()
+      const nowMinutes = now.getHours() * 60 + now.getMinutes()
+      const apptMinutes = timeToMinutes(newAppointment.time)
+      if (apptMinutes <= nowMinutes) {
+        setFormError("Não é possível agendar para um horário que já passou.")
+        return
+      }
     }
 
     setIsCreating(true)
@@ -107,7 +172,6 @@ export function AgendaView() {
       setIsDialogOpen(false)
       resetForm()
     } catch (err) {
-      // Exibe o erro de conflito ou validação dentro do formulário (não apenas no toast)
       const message = err instanceof Error ? err.message : "Erro ao agendar consulta"
       setFormError(message)
       toast.error(message)
@@ -123,6 +187,16 @@ export function AgendaView() {
       mutate()
     } catch (err) {
       toast.error("Erro ao atualizar status")
+    }
+  }
+
+  // Marca automaticamente como falta os agendamentos que passaram do expediente
+  const handleAutoMissed = async (id: string) => {
+    try {
+      await updateAppointment(id, { status: "Falta" } as any)
+      mutate()
+    } catch {
+      // silencioso — será tentado novamente no próximo tick
     }
   }
 
@@ -161,6 +235,8 @@ export function AgendaView() {
         return <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400">Concluida</Badge>
       case "Cancelada":
         return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">Cancelada</Badge>
+      case "Falta":
+        return <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">Falta</Badge>
       default:
         return <Badge variant="secondary">{status}</Badge>
     }
@@ -226,7 +302,8 @@ export function AgendaView() {
               }}
             >
               <DialogTrigger asChild>
-                <Button className="gap-2">
+                {/* Botão desabilitado para datas passadas */}
+                <Button className="gap-2" disabled={isPastDate} title={isPastDate ? "Não é possível agendar em datas passadas" : ""}>
                   <Plus className="h-4 w-4" />
                   Novo Agendamento
                 </Button>
@@ -240,7 +317,6 @@ export function AgendaView() {
                 </DialogHeader>
 
                 <div className="grid gap-4 py-4">
-                  {/* Banner de erro de conflito / validação */}
                   {formError && (
                     <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                       <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -294,6 +370,7 @@ export function AgendaView() {
                         id="time"
                         type="time"
                         value={newAppointment.time}
+                        min={dateString === todayString ? `${String(new Date().getHours()).padStart(2, "0")}:${String(new Date().getMinutes()).padStart(2, "0")}` : undefined}
                         onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })}
                       />
                     </div>
@@ -314,7 +391,6 @@ export function AgendaView() {
                     </div>
                   </div>
 
-                  {/* Dentista obrigatório — marcado com * */}
                   <div className="grid gap-2">
                     <Label htmlFor="doctor">Dentista Responsavel *</Label>
                     {staff.length > 0 ? (
@@ -382,85 +458,118 @@ export function AgendaView() {
               ) : !appointments || appointments.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground">Nenhuma consulta agendada para este dia</p>
-                  <Button className="mt-4 bg-transparent" variant="outline" onClick={() => setIsDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Agendar Consulta
-                  </Button>
+                  {!isPastDate && (
+                    <Button className="mt-4 bg-transparent" variant="outline" onClick={() => setIsDialogOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Agendar Consulta
+                    </Button>
+                  )}
                 </div>
               ) : (
-                appointments.map((appointment) => (
-                  <div
-                    key={appointment.id}
-                    className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-4"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center justify-center rounded-lg bg-primary/10 px-3 py-2 min-w-[80px]">
-                        <Clock className="h-4 w-4 text-primary mr-2" />
-                        <span className="text-sm font-medium text-foreground">{formatTime(appointment.time)}</span>
+                appointments.map((appointment) => {
+                  const isActiveStatus = appointment.status === "Pendente" || appointment.status === "Confirmada"
+                  const timeStatus = isActiveStatus
+                    ? getAppointmentTimeStatus(appointment.date, appointment.time, closingHour)
+                    : "ok"
+
+                  // Dispara atualização automática para falta
+                  if (timeStatus === "missed" && isActiveStatus) {
+                    handleAutoMissed(appointment.id)
+                  }
+
+                  return (
+                    <div
+                      key={appointment.id}
+                      className={`flex items-center justify-between rounded-lg border p-4 ${
+                        timeStatus === "missed"
+                          ? "border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-950/20"
+                          : timeStatus === "late"
+                          ? "border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20"
+                          : "border-border bg-muted/30"
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center justify-center rounded-lg bg-primary/10 px-3 py-2 min-w-[80px]">
+                          <Clock className="h-4 w-4 text-primary mr-2" />
+                          <span className="text-sm font-medium text-foreground">{formatTime(appointment.time)}</span>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{appointment.patient?.full_name || "Paciente"}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {appointment.procedure_type}
+                            {appointment.doctor_name && ` - Dr(a). ${appointment.doctor_name}`}
+                          </p>
+                          {/* Badge de atraso */}
+                          {timeStatus === "late" && (
+                            <div className="flex items-center gap-1 mt-1">
+                              <AlertTriangle className="h-3 w-3 text-yellow-600" />
+                              <span className="text-xs text-yellow-600 font-medium">Atrasado</span>
+                            </div>
+                          )}
+                        </div>
+                        {getStatusBadge(appointment.status)}
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{appointment.patient?.full_name || "Paciente"}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {appointment.procedure_type}
-                          {appointment.doctor_name && ` - Dr(a). ${appointment.doctor_name}`}
-                        </p>
-                      </div>
-                      {getStatusBadge(appointment.status)}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {appointment.status === "Pendente" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="bg-transparent"
-                          onClick={() => handleUpdateStatus(appointment.id, "Confirmada")}
-                        >
-                          Confirmar
-                        </Button>
-                      )}
-                      {(appointment.status === "Confirmada" || appointment.status === "Pendente") && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleUpdateStatus(appointment.id, "Em Andamento")}
-                        >
-                          Iniciar
-                        </Button>
-                      )}
-                      {appointment.status === "Em Andamento" && (
-                        <>
-                          <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 animate-pulse">
-                            Em atendimento
-                          </Badge>
+                      <div className="flex items-center gap-2">
+                        {appointment.status === "Pendente" && timeStatus !== "missed" && (
                           <Button
-                            size="sm"
                             variant="outline"
-                            className="bg-transparent text-destructive border-destructive/30 hover:bg-destructive/10"
-                            onClick={() => handleUpdateStatus(appointment.id, "Cancelada")}
+                            size="sm"
+                            className="bg-transparent"
+                            onClick={() => handleUpdateStatus(appointment.id, "Confirmada")}
                           >
-                            Cancelar
+                            Confirmar
                           </Button>
+                        )}
+                        {/* Botão Iniciar: liberado antes do horário e após (até fechar), bloqueado se falta */}
+                        {isActiveStatus && timeStatus !== "missed" && (
                           <Button
                             size="sm"
-                            className="bg-success text-white hover:bg-success/90"
-                            onClick={() => handleUpdateStatus(appointment.id, "Concluída")}
+                            onClick={() => handleUpdateStatus(appointment.id, "Em Andamento")}
                           >
-                            Encerrar
+                            Iniciar
                           </Button>
-                        </>
-                      )}
-                      {appointment.status === "Concluída" && (
-                        <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400">
-                          Encerrado
-                        </Badge>
-                      )}
-                      {appointment.status === "Cancelada" && (
-                        <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-                          Cancelada
-                        </Badge>
-                      )}
+                        )}
+                        {appointment.status === "Em Andamento" && (
+                          <>
+                            <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 animate-pulse">
+                              Em atendimento
+                            </Badge>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-transparent text-destructive border-destructive/30 hover:bg-destructive/10"
+                              onClick={() => handleUpdateStatus(appointment.id, "Cancelada")}
+                            >
+                              Cancelar
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="bg-success text-white hover:bg-success/90"
+                              onClick={() => handleUpdateStatus(appointment.id, "Concluída")}
+                            >
+                              Encerrar
+                            </Button>
+                          </>
+                        )}
+                        {appointment.status === "Concluída" && (
+                          <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400">
+                            Encerrado
+                          </Badge>
+                        )}
+                        {appointment.status === "Cancelada" && (
+                          <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                            Cancelada
+                          </Badge>
+                        )}
+                        {appointment.status === "Falta" && (
+                          <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
+                            Falta
+                          </Badge>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  )
+                })
               )}
             </CardContent>
           </Card>
@@ -518,6 +627,7 @@ export function AgendaView() {
                     variant="outline"
                     size="sm"
                     className="mt-2 h-7 text-xs bg-transparent"
+                    disabled={isPastDate}
                     onClick={() => {
                       setNewAppointment({ ...newAppointment, time })
                       setIsDialogOpen(true)
