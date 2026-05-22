@@ -12,12 +12,14 @@ import {
   BarChart3,
   Leaf,
   X,
+  DollarSign,
 } from "lucide-react"
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
   { icon: Users, label: "Lista de Pacientes", href: "/pacientes" },
   { icon: Calendar, label: "Agenda Inteligente", href: "/agenda" },
+  { icon: DollarSign, label: "Financeiro", href: "/financeiro" },
   { icon: FileStack, label: "Gestão Paperless", href: "/gestao-paperless" },
   { icon: Building2, label: "Gestão da Clínica", href: "/gestao-clinica" },
   { icon: BarChart3, label: "Relatórios", href: "/relatorios" },
@@ -102,4 +104,3 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     </>
   )
 }
-
