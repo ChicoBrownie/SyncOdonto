@@ -35,26 +35,32 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   return (
     <>
-      {/* Mobile overlay */}
-      {isOpen && <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />}
+      {/* Overlay mobile */}
+      {isOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={onClose} />
+      )}
 
-      {/* Sidebar */}
       <aside
         className={cn(
           "fixed left-0 top-0 z-50 h-full w-64 bg-card border-r border-border transition-transform duration-300",
-          isOpen ? "translate-x-0" : "-translate-x-full",
+          // Mobile: abre/fecha com o hamburguer
+          // Desktop: sempre visível
+          isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         )}
       >
         <div className="flex h-full flex-col">
           {/* Logo */}
           <div className="flex items-center justify-between gap-2 border-b border-border px-6 py-4">
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                <div className="h-4 w-4 rounded-full bg-primary-foreground" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary overflow-hidden">
+                <img src="/icon.png" alt="SyncOdonto" className="h-8 w-8 object-cover" onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none"
+                }} />
               </div>
               <span className="text-lg font-semibold text-foreground">SyncOdonto</span>
             </div>
-            <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            {/* Botão fechar só aparece no mobile */}
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground lg:hidden">
               <X className="h-5 w-5" />
             </button>
           </div>
@@ -93,7 +99,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-success">Impacto Sustentável</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Este mês você economizou <span className="font-semibold text-foreground">2.847 folhas de papel</span>{" "}
+                  Este mês você economizou{" "}
+                  <span className="font-semibold text-foreground">2.847 folhas de papel</span>{" "}
                   🌱
                 </p>
               </div>
