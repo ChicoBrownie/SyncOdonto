@@ -10,14 +10,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      {/* Sidebar desktop — sempre visível, no fluxo normal */}
+      <div className="hidden lg:flex lg:w-64 lg:shrink-0">
+        <Sidebar isOpen={true} onClose={() => {}} desktop />
+      </div>
 
-      {/* Espaço reservado para a sidebar no desktop */}
-      <div className="hidden lg:block w-64 shrink-0" />
+      {/* Sidebar mobile — overlay controlado pelo hamburguer */}
+      <div className="lg:hidden">
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      </div>
 
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <Header onMenuClick={() => setSidebarOpen(true)} />
-
         <main className="flex-1 overflow-y-auto">
           <div className="container mx-auto p-4 lg:p-6">{children}</div>
         </main>
