@@ -20,50 +20,43 @@ export async function GET(request: Request) {
     .order("date", { ascending: true })
     .order("time", { ascending: true })
 
-  if (date) {
-    query = query.eq("date", date)
-  }
-
-  if (startDate && endDate) {
-    query = query.gte("date", startDate).lte("date", endDate)
-  }
-
-  if (status && status !== "all") {
-    query = query.eq("status", status)
-  }
-
-  if (patientId) {
-    query = query.eq("patient_id", patientId)
-  }
+  if (date) query = query.eq("date", date)
+  if (startDate && endDate) query = query.gte("date", startDate).lte("date", endDate)
+  if (status && status !== "all") query = query.eq("status", status)
+  if (patientId) query = query.eq("patient_id", patientId)
 
   const { data, error } = await query
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ data })
 }
 
-// Verifica se dois intervalos de tempo se sobrepõem
-// [start1, end1) e [start2, end2) — usa minutos desde meia-noite para comparação
 function parseMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number)
   return h * 60 + m
 }
 
-function hasTimeConflict(
-  startA: string,
-  durationA: number,
-  startB: string,
-  durationB: number
-): boolean {
+function hasTimeConflict(startA: string, durationA: number, startB: string, durationB: number): boolean {
   const startAMin = parseMinutes(startA)
   const endAMin = startAMin + durationA
   const startBMin = parseMinutes(startB)
   const endBMin = startBMin + durationB
-  // Sobreposição ocorre quando um intervalo começa antes do outro terminar
   return startAMin < endBMin && startBMin < endAMin
+}
+
+// FIX BUG 4: retorna data local no fuso de Brasília (UTC-3)
+function getTodayBrasilia(): string {
+  const now = new Date()
+  // Ajusta para UTC-3
+  const offset = -3 * 60
+  const localTime = new Date(now.getTime() + (offset - now.getTimezoneOffset()) * 60_000)
+  return localTime.toISOString().split("T")[0]
+}
+
+function getNowMinutesBrasilia(): number {
+  const now = new Date()
+  const offset = -3 * 60
+  const localTime = new Date(now.getTime() + (offset - now.getTimezoneOffset()) * 60_000)
+  return localTime.getHours() * 60 + localTime.getMinutes()
 }
 
 export async function POST(request: Request) {
@@ -73,62 +66,39 @@ export async function POST(request: Request) {
 
   const body = await request.json()
 
-  // --- Validações básicas ---
+  // Validações básicas
   if (!body.patient_id) {
-    return NextResponse.json(
-      { error: "Paciente é obrigatório." },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: "Paciente é obrigatório." }, { status: 400 })
   }
-
   if (!body.doctor_name || body.doctor_name.trim() === "") {
-    return NextResponse.json(
-      { error: "Dentista responsável é obrigatório." },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: "Dentista responsável é obrigatório." }, { status: 400 })
   }
-
   if (!body.date || !body.time) {
-    return NextResponse.json(
-      { error: "Data e horário são obrigatórios." },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: "Data e horário são obrigatórios." }, { status: 400 })
+  }
+  if (typeof body.cost === "number" && body.cost < 0) {
+    return NextResponse.json({ error: "O valor do procedimento não pode ser negativo." }, { status: 400 })
   }
 
   const duration = body.duration_minutes ?? 60
 
-  if (typeof body.cost === "number" && body.cost < 0) {
-    return NextResponse.json(
-      { error: "O valor do procedimento não pode ser negativo." },
-      { status: 400 }
-    )
-  }
-
-  // --- Validação de data e horário ---
-  const today = new Date().toISOString().split("T")[0]
+  // FIX BUG 4: usa data de Brasília para comparação
+  const today = getTodayBrasilia()
 
   if (body.date < today) {
-    return NextResponse.json(
-      { error: "Não é possível agendar em datas passadas." },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: "Não é possível agendar em datas passadas." }, { status: 400 })
   }
 
+  // FIX BUG 1: compara minutos sem adicionar buffer de horas
   if (body.date === today) {
-    const now = new Date()
-    const nowMinutes = now.getHours() * 60 + now.getMinutes()
-    const [h, m] = body.time.split(":").map(Number)
-    const apptMinutes = h * 60 + m
+    const nowMinutes = getNowMinutesBrasilia()
+    const apptMinutes = parseMinutes(body.time)
     if (apptMinutes <= nowMinutes) {
-      return NextResponse.json(
-        { error: "Não é possível agendar para um horário que já passou." },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "Não é possível agendar para um horário que já passou." }, { status: 400 })
     }
   }
 
-  // --- Busca agendamentos existentes na mesma data ---
-  // Exclui cancelados e concluídos pois não ocupam mais o horário
+  // Busca agendamentos existentes na mesma data
   const { data: existingAppointments, error: fetchError } = await supabase
     .from("appointments")
     .select("id, time, duration_minutes, patient_id, doctor_name, status")
@@ -140,55 +110,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: fetchError.message }, { status: 500 })
   }
 
-  // --- Verifica conflitos para o mesmo dentista e para o mesmo paciente ---
+  // Verifica conflitos
   for (const existing of existingAppointments ?? []) {
     const existingDuration = existing.duration_minutes ?? 60
-
-    const conflict = hasTimeConflict(
-      body.time,
-      duration,
-      existing.time,
-      existingDuration
-    )
-
+    const conflict = hasTimeConflict(body.time, duration, existing.time, existingDuration)
     if (!conflict) continue
 
-    // Conflito de dentista
-    if (
-      existing.doctor_name &&
-      body.doctor_name &&
-      existing.doctor_name.trim().toLowerCase() ===
-        body.doctor_name.trim().toLowerCase()
-    ) {
-      return NextResponse.json(
-        {
-          error: `Conflito de horário: o(a) dentista ${body.doctor_name} já possui um agendamento às ${existing.time.substring(0, 5)} nesta data.`,
-        },
-        { status: 409 }
-      )
+    if (existing.doctor_name && body.doctor_name &&
+      existing.doctor_name.trim().toLowerCase() === body.doctor_name.trim().toLowerCase()) {
+      return NextResponse.json({
+        error: `Conflito de horário: o(a) dentista ${body.doctor_name} já possui um agendamento às ${existing.time.substring(0, 5)} nesta data.`,
+      }, { status: 409 })
     }
 
-    // Conflito de paciente
     if (existing.patient_id === body.patient_id) {
-      return NextResponse.json(
-        {
-          error: `Conflito de horário: este paciente já possui um agendamento às ${existing.time.substring(0, 5)} nesta data.`,
-        },
-        { status: 409 }
-      )
+      return NextResponse.json({
+        error: `Conflito de horário: este paciente já possui um agendamento às ${existing.time.substring(0, 5)} nesta data.`,
+      }, { status: 409 })
     }
   }
 
-  // --- Sem conflitos, insere o agendamento ---
   const { data, error } = await supabase
     .from("appointments")
     .insert({ ...body, user_id: user.id })
     .select(`*, patient:patients(id, full_name, phone, email)`)
     .single()
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ data })
 }

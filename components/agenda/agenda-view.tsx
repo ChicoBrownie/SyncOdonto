@@ -35,6 +35,15 @@ function timeToMinutes(time: string): number {
   return h * 60 + m
 }
 
+// ── FIX BUG 4: usa data LOCAL (não UTC) ──────────────────────────────────────
+function toLocalDateString(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
+// ── FIX BUG 3: compara datas com horário local ────────────────────────────────
 type AppointmentTimeStatus = "ok" | "late" | "missed"
 
 function getAppointmentTimeStatus(
@@ -43,26 +52,28 @@ function getAppointmentTimeStatus(
   closingHour: number
 ): AppointmentTimeStatus {
   const now = new Date()
-  const todayString = now.toISOString().split("T")[0]
+  const todayString = toLocalDateString(now)
+
   if (appointmentDate !== todayString) {
     if (appointmentDate < todayString) return "missed"
     return "ok"
   }
+
   const nowMinutes = now.getHours() * 60 + now.getMinutes()
   const apptMinutes = timeToMinutes(appointmentTime)
   const closingMinutes = closingHour * 60
+
   if (nowMinutes >= closingMinutes) return "missed"
   if (nowMinutes >= apptMinutes + 15) return "late"
   return "ok"
 }
 
-// ── Helpers de calendário ──────────────────────────────────────────────────
-
+// ── Helpers de calendário ─────────────────────────────────────────────────────
 function getWeekDays(referenceDate: Date): Date[] {
   const d = new Date(referenceDate)
-  const day = d.getDay() // 0=dom
+  const day = d.getDay()
   const monday = new Date(d)
-  monday.setDate(d.getDate() - ((day + 6) % 7)) // começa na segunda
+  monday.setDate(d.getDate() - ((day + 6) % 7))
   return Array.from({ length: 7 }, (_, i) => {
     const date = new Date(monday)
     date.setDate(monday.getDate() + i)
@@ -75,19 +86,14 @@ function getMonthDays(referenceDate: Date): (Date | null)[] {
   const month = referenceDate.getMonth()
   const firstDay = new Date(year, month, 1)
   const lastDay = new Date(year, month + 1, 0)
-  const startOffset = (firstDay.getDay() + 6) % 7 // segunda como início
+  const startOffset = (firstDay.getDay() + 6) % 7
   const days: (Date | null)[] = []
   for (let i = 0; i < startOffset; i++) days.push(null)
   for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d))
   return days
 }
 
-function toDateString(date: Date): string {
-  return date.toISOString().split("T")[0]
-}
-
-// ── Componente principal ───────────────────────────────────────────────────
-
+// ── Componente principal ──────────────────────────────────────────────────────
 export function AgendaView() {
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<"day" | "week" | "month">("day")
@@ -101,21 +107,20 @@ export function AgendaView() {
     return () => clearInterval(interval)
   }, [])
 
-  const dateString = toDateString(selectedDate)
-  const todayString = toDateString(new Date())
+  // FIX BUG 4: usa data local em todos os lugares
+  const dateString = toLocalDateString(selectedDate)
+  const todayString = toLocalDateString(new Date())
   const isPastDate = dateString < todayString
 
-  // Para view diária busca só o dia selecionado
   const { appointments, isLoading, error, mutate } = useAppointments({ date: dateString })
 
-  // Para view semanal e mensal busca por intervalo
   const weekDays = getWeekDays(selectedDate)
-  const weekStart = toDateString(weekDays[0])
-  const weekEnd = toDateString(weekDays[6])
+  const weekStart = toLocalDateString(weekDays[0])
+  const weekEnd = toLocalDateString(weekDays[6])
 
   const monthDays = getMonthDays(selectedDate)
-  const monthStart = toDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
-  const monthEnd = toDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0))
+  const monthStart = toLocalDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
+  const monthEnd = toLocalDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0))
 
   const { data: weekData } = useSWR(
     viewMode === "week" ? `/api/appointments?startDate=${weekStart}&endDate=${weekEnd}` : null,
@@ -148,9 +153,19 @@ export function AgendaView() {
     ? parseInt(settingsRes.data.working_hours.end.split(":")[0])
     : DEFAULT_CLOSING_HOUR
 
+  const openingHour: number = settingsRes?.data?.working_hours?.start
+    ? parseInt(settingsRes.data.working_hours.start.split(":")[0])
+    : 8
+
   const resetForm = () => {
     setNewAppointment({ patient_id: "", procedure_type: "Consulta", time: "", duration_minutes: 60, notes: "", doctor_name: "" })
     setFormError(null)
+  }
+
+  // FIX BUG 1: validação de horário usa hora local corretamente
+  const getCurrentTimeString = () => {
+    const now = new Date()
+    return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
   }
 
   const handleCreateAppointment = async () => {
@@ -160,14 +175,18 @@ export function AgendaView() {
     if (!newAppointment.time) { setFormError("Informe o horário do agendamento."); return }
     if (!newAppointment.doctor_name?.trim()) { setFormError("Selecione ou informe o dentista responsável."); return }
     if (dateString < todayString) { setFormError("Não é possível agendar em datas passadas."); return }
+
+    // FIX BUG 1: compara minutos corretamente sem adicionar horas extras
     if (dateString === todayString) {
       const now = new Date()
       const nowMinutes = now.getHours() * 60 + now.getMinutes()
-      if (timeToMinutes(newAppointment.time) <= nowMinutes) {
+      const apptMinutes = timeToMinutes(newAppointment.time)
+      if (apptMinutes <= nowMinutes) {
         setFormError("Não é possível agendar para um horário que já passou.")
         return
       }
     }
+
     setIsCreating(true)
     try {
       await createAppointment({
@@ -247,8 +266,13 @@ export function AgendaView() {
 
   const confirmedCount = appointments?.filter(a => a.status === "Confirmada").length || 0
   const pendingCount = appointments?.filter(a => a.status === "Pendente").length || 0
+  // FIX BUG 7: conta cancelados
+  const cancelledCount = appointments?.filter(a => a.status === "Cancelada" || a.status === "Falta").length || 0
 
-  // ── Título da navegação por modo ──
+  // FIX BUG 5: taxa de ocupação sem limite de 100%
+  const occupancyRate = appointments ? Math.round((appointments.length / 8) * 100) : 0
+  const occupancyWidth = Math.min(occupancyRate, 100)
+
   const navTitle = viewMode === "day"
     ? `${formatDisplayDate(selectedDate)} · ${formatWeekday(selectedDate)}`
     : viewMode === "week"
@@ -258,7 +282,7 @@ export function AgendaView() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-12">
-        <p className="text-muted-foreground">Erro ao carregar agenda. Faca login para continuar.</p>
+        <p className="text-muted-foreground">Erro ao carregar agenda. Faça login para continuar.</p>
         <Link href="/auth/login"><Button className="mt-4">Fazer Login</Button></Link>
       </div>
     )
@@ -268,13 +292,12 @@ export function AgendaView() {
   const WeekView = () => (
     <div className="grid grid-cols-7 gap-2">
       {weekDays.map((day) => {
-        const ds = toDateString(day)
+        const ds = toLocalDateString(day)
         const isToday = ds === todayString
         const isPast = ds < todayString
-        const dayAppts = weekAppointments.filter(a => a.date === ds)
+        const dayAppts = weekAppointments.filter((a: any) => a.date === ds)
         return (
           <div key={ds} className="flex flex-col gap-1">
-            {/* Cabeçalho do dia */}
             <button
               onClick={() => { setSelectedDate(day); setViewMode("day") }}
               className={`rounded-lg p-2 text-center transition-colors hover:bg-muted ${isToday ? "bg-primary text-primary-foreground" : "bg-muted/40"}`}
@@ -284,29 +307,21 @@ export function AgendaView() {
                 {day.getDate()}
               </div>
             </button>
-            {/* Agendamentos do dia */}
             <div className="flex flex-col gap-1 min-h-[80px]">
               {dayAppts.length === 0 ? (
-                <div className="rounded border border-dashed border-border p-1 text-center text-xs text-muted-foreground">
-                  —
-                </div>
+                <div className="rounded border border-dashed border-border p-1 text-center text-xs text-muted-foreground">—</div>
               ) : (
-                dayAppts.slice(0, 3).map(appt => (
-                  <button
-                    key={appt.id}
-                    onClick={() => { setSelectedDate(day); setViewMode("day") }}
-                    className="rounded bg-primary/10 border border-primary/20 px-1.5 py-1 text-left hover:bg-primary/20 transition-colors"
-                  >
+                dayAppts.slice(0, 3).map((appt: any) => (
+                  <button key={appt.id} onClick={() => { setSelectedDate(day); setViewMode("day") }}
+                    className="rounded bg-primary/10 border border-primary/20 px-1.5 py-1 text-left hover:bg-primary/20 transition-colors">
                     <div className="text-xs font-medium text-foreground truncate">{formatTime(appt.time)}</div>
                     <div className="text-xs text-muted-foreground truncate">{appt.patient?.full_name || "—"}</div>
                   </button>
                 ))
               )}
               {dayAppts.length > 3 && (
-                <button
-                  onClick={() => { setSelectedDate(day); setViewMode("day") }}
-                  className="text-xs text-primary hover:underline text-center"
-                >
+                <button onClick={() => { setSelectedDate(day); setViewMode("day") }}
+                  className="text-xs text-primary hover:underline text-center">
                   +{dayAppts.length - 3} mais
                 </button>
               )}
@@ -322,45 +337,35 @@ export function AgendaView() {
     const weekdayLabels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
     return (
       <div>
-        {/* Cabeçalho dos dias da semana */}
         <div className="grid grid-cols-7 gap-1 mb-1">
           {weekdayLabels.map(d => (
             <div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">{d}</div>
           ))}
         </div>
-        {/* Grade dos dias */}
         <div className="grid grid-cols-7 gap-1">
           {monthDays.map((day, idx) => {
             if (!day) return <div key={`empty-${idx}`} />
-            const ds = toDateString(day)
+            const ds = toLocalDateString(day)
             const isToday = ds === todayString
             const isPast = ds < todayString
-            const dayAppts = monthAppointments.filter(a => a.date === ds)
+            const dayAppts = monthAppointments.filter((a: any) => a.date === ds)
             return (
-              <button
-                key={ds}
-                onClick={() => { setSelectedDate(day); setViewMode("day") }}
+              <button key={ds} onClick={() => { setSelectedDate(day); setViewMode("day") }}
                 className={`rounded-lg p-1.5 text-left transition-colors min-h-[64px] hover:bg-muted ${
-                  isToday
-                    ? "bg-primary/10 border border-primary ring-1 ring-primary/40"
-                    : isPast
-                    ? "bg-muted/20 opacity-60"
-                    : "bg-muted/30"
-                }`}
-              >
+                  isToday ? "bg-primary/10 border border-primary ring-1 ring-primary/40"
+                  : isPast ? "bg-muted/20 opacity-60" : "bg-muted/30"
+                }`}>
                 <div className={`text-sm font-semibold mb-1 ${isToday ? "text-primary" : isPast ? "text-muted-foreground" : "text-foreground"}`}>
                   {day.getDate()}
                 </div>
                 {dayAppts.length > 0 && (
                   <div className="flex flex-col gap-0.5">
-                    {dayAppts.slice(0, 2).map(appt => (
+                    {dayAppts.slice(0, 2).map((appt: any) => (
                       <div key={appt.id} className="rounded bg-primary/20 px-1 text-xs text-foreground truncate">
                         {formatTime(appt.time)} {appt.patient?.full_name?.split(" ")[0] || ""}
                       </div>
                     ))}
-                    {dayAppts.length > 2 && (
-                      <div className="text-xs text-primary font-medium">+{dayAppts.length - 2}</div>
-                    )}
+                    {dayAppts.length > 2 && <div className="text-xs text-primary font-medium">+{dayAppts.length - 2}</div>}
                   </div>
                 )}
               </button>
@@ -371,13 +376,15 @@ export function AgendaView() {
     )
   }
 
-  // ── VIEW DIÁRIA (card de agendamento) ─────────────────────────────────────
+  // ── CARD DE AGENDAMENTO ───────────────────────────────────────────────────
   const AppointmentCard = ({ appointment }: { appointment: any }) => {
     const isActiveStatus = appointment.status === "Pendente" || appointment.status === "Confirmada"
     const timeStatus = isActiveStatus
       ? getAppointmentTimeStatus(appointment.date, appointment.time, closingHour)
       : "ok"
+
     if (timeStatus === "missed" && isActiveStatus) handleAutoMissed(appointment.id)
+
     return (
       <div className={`flex items-center justify-between rounded-lg border p-4 ${
         timeStatus === "missed" ? "border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-950/20"
@@ -404,22 +411,43 @@ export function AgendaView() {
           </div>
           {getStatusBadge(appointment.status)}
         </div>
+
         <div className="flex items-center gap-2">
+          {/* FIX BUG 6: Confirmar disponível em Pendente */}
           {appointment.status === "Pendente" && timeStatus !== "missed" && (
             <Button variant="outline" size="sm" className="bg-transparent"
-              onClick={() => handleUpdateStatus(appointment.id, "Confirmada")}>Confirmar</Button>
+              onClick={() => handleUpdateStatus(appointment.id, "Confirmada")}>
+              Confirmar
+            </Button>
           )}
+          {/* FIX BUG 6: Cancelar disponível em Pendente e Confirmada, não só Em Andamento */}
           {isActiveStatus && timeStatus !== "missed" && (
-            <Button size="sm" onClick={() => handleUpdateStatus(appointment.id, "Em Andamento")}>Iniciar</Button>
+            <>
+              <Button size="sm"
+                onClick={() => handleUpdateStatus(appointment.id, "Em Andamento")}>
+                Iniciar
+              </Button>
+              <Button size="sm" variant="outline"
+                className="bg-transparent text-destructive border-destructive/30 hover:bg-destructive/10"
+                onClick={() => handleUpdateStatus(appointment.id, "Cancelada")}>
+                Cancelar
+              </Button>
+            </>
           )}
           {appointment.status === "Em Andamento" && (
             <>
-              <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 animate-pulse">Em atendimento</Badge>
+              <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 animate-pulse">
+                Em atendimento
+              </Badge>
               <Button size="sm" variant="outline"
                 className="bg-transparent text-destructive border-destructive/30 hover:bg-destructive/10"
-                onClick={() => handleUpdateStatus(appointment.id, "Cancelada")}>Cancelar</Button>
+                onClick={() => handleUpdateStatus(appointment.id, "Cancelada")}>
+                Cancelar
+              </Button>
               <Button size="sm" className="bg-success text-white hover:bg-success/90"
-                onClick={() => handleUpdateStatus(appointment.id, "Concluída")}>Encerrar</Button>
+                onClick={() => handleUpdateStatus(appointment.id, "Concluída")}>
+                Encerrar
+              </Button>
             </>
           )}
           {appointment.status === "Concluída" && <Badge className="bg-gray-100 text-gray-800">Encerrado</Badge>}
@@ -434,10 +462,9 @@ export function AgendaView() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-foreground">Agenda Inteligente</h1>
-        <p className="text-muted-foreground">Gerencie consultas com sugestoes automaticas</p>
+        <p className="text-muted-foreground">Gerencie consultas com sugestões automáticas</p>
       </div>
 
-      {/* Barra de navegação */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -465,8 +492,7 @@ export function AgendaView() {
 
             <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm() }}>
               <DialogTrigger asChild>
-                <Button className="gap-2" disabled={isPastDate && viewMode === "day"}
-                  title={isPastDate && viewMode === "day" ? "Não é possível agendar em datas passadas" : ""}>
+                <Button className="gap-2" disabled={isPastDate && viewMode === "day"}>
                   <Plus className="h-4 w-4" />
                   Novo Agendamento
                 </Button>
@@ -505,19 +531,20 @@ export function AgendaView() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="grid gap-2">
-                      <Label>Horario *</Label>
+                      <Label>Horário *</Label>
+                      {/* FIX BUG 1: min calculado corretamente com hora local */}
                       <Input type="time" value={newAppointment.time}
-                        min={dateString === todayString ? `${String(new Date().getHours()).padStart(2,"0")}:${String(new Date().getMinutes()).padStart(2,"0")}` : undefined}
+                        min={dateString === todayString ? getCurrentTimeString() : undefined}
                         onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })} />
                     </div>
                     <div className="grid gap-2">
-                      <Label>Duracao (min)</Label>
+                      <Label>Duração (min)</Label>
                       <Input type="number" min={1} value={newAppointment.duration_minutes}
                         onChange={(e) => setNewAppointment({ ...newAppointment, duration_minutes: Math.max(1, parseInt(e.target.value) || 60) })} />
                     </div>
                   </div>
                   <div className="grid gap-2">
-                    <Label>Dentista Responsavel *</Label>
+                    <Label>Dentista Responsável *</Label>
                     {staff.length > 0 ? (
                       <Select value={newAppointment.doctor_name} onValueChange={(v) => setNewAppointment({ ...newAppointment, doctor_name: v })}>
                         <SelectTrigger><SelectValue placeholder="Selecione o dentista" /></SelectTrigger>
@@ -545,26 +572,17 @@ export function AgendaView() {
         </CardContent>
       </Card>
 
-      {/* Views */}
       {viewMode === "week" && (
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Visão Semanal</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <WeekView />
-          </CardContent>
+          <CardHeader className="pb-3"><CardTitle className="text-base">Visão Semanal</CardTitle></CardHeader>
+          <CardContent><WeekView /></CardContent>
         </Card>
       )}
 
       {viewMode === "month" && (
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base capitalize">{formatMonthYear(selectedDate)}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <MonthView />
-          </CardContent>
+          <CardHeader className="pb-3"><CardTitle className="text-base capitalize">{formatMonthYear(selectedDate)}</CardTitle></CardHeader>
+          <CardContent><MonthView /></CardContent>
         </Card>
       )}
 
@@ -601,17 +619,24 @@ export function AgendaView() {
 
           <div className="space-y-6">
             <Card>
-              <CardHeader className="pb-3"><CardTitle className="text-base">Estatisticas do Dia</CardTitle></CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between pb-3">
+                <CardTitle className="text-base">Estatísticas do Dia</CardTitle>
+                {/* FIX BUG 8: link para relatórios */}
+                <Link href="/relatorios" className="text-xs text-primary hover:underline">
+                  Ver relatório →
+                </Link>
+              </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Taxa de Ocupacao</span>
-                  <span className="text-sm font-semibold text-foreground">
-                    {appointments ? `${Math.min(Math.round((appointments.length / 8) * 100), 100)}%` : "0%"}
+                  <span className="text-sm text-muted-foreground">Taxa de Ocupação</span>
+                  {/* FIX BUG 5: mostra acima de 100% */}
+                  <span className={`text-sm font-semibold ${occupancyRate > 100 ? "text-orange-500" : "text-foreground"}`}>
+                    {occupancyRate}%{occupancyRate > 100 ? " ⚠️" : ""}
                   </span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full bg-success transition-all"
-                    style={{ width: `${appointments ? Math.min(Math.round((appointments.length / 8) * 100), 100) : 0}%` }} />
+                  <div className={`h-full transition-all ${occupancyRate > 100 ? "bg-orange-500" : "bg-success"}`}
+                    style={{ width: `${occupancyWidth}%` }} />
                 </div>
                 <div className="pt-2 space-y-2">
                   <div className="flex items-center justify-between">
@@ -626,17 +651,22 @@ export function AgendaView() {
                     <span className="text-sm text-muted-foreground">Pendentes</span>
                     <Badge variant="secondary" className="bg-warning/10 text-warning hover:bg-warning/20">{pendingCount}</Badge>
                   </div>
+                  {/* FIX BUG 7: canceladas no card */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Canceladas/Falta</span>
+                    <Badge variant="secondary" className="bg-red-100 text-red-700">{cancelledCount}</Badge>
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Sugestoes Inteligentes</CardTitle>
-                <p className="text-xs text-muted-foreground">Horarios otimizados para agendamento</p>
+                <CardTitle className="text-base">Sugestões Inteligentes</CardTitle>
+                <p className="text-xs text-muted-foreground">Horários otimizados para agendamento</p>
               </CardHeader>
               <CardContent className="space-y-2">
-                {[{ time: "11:30", label: "Horario livre - Alta demanda" }, { time: "13:00", label: "Horario otimizado para retornos" }].map(({ time, label }) => (
+                {[{ time: "11:30", label: "Horário livre - Alta demanda" }, { time: "13:00", label: "Horário otimizado para retornos" }].map(({ time, label }) => (
                   <div key={time} className="rounded-lg bg-purple-600/10 border border-purple-600/20 p-3">
                     <p className="text-sm font-medium text-foreground">{time}</p>
                     <p className="text-xs text-muted-foreground mt-1">{label}</p>
