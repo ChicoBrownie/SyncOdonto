@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, ChevronLeft, ChevronRight, Clock, Plus, Loader2, AlertCircle, AlertTriangle } from "lucide-react"
+import { Calendar, ChevronLeft, ChevronRight, Plus, Loader2, AlertCircle, AlertTriangle } from "lucide-react"
 import { useAppointments, usePatients, createAppointment, updateAppointment } from "@/lib/hooks/use-data"
 import {
   Dialog,
@@ -15,8 +15,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -24,9 +22,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import useSWR from "swr"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 const DEFAULT_CLOSING_HOUR = 18
 
@@ -35,7 +37,6 @@ function timeToMinutes(time: string): number {
   return h * 60 + m
 }
 
-// ── FIX BUG 4: usa data LOCAL (não UTC) ──────────────────────────────────────
 function toLocalDateString(date: Date): string {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, "0")
@@ -43,7 +44,6 @@ function toLocalDateString(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
-// ── FIX BUG 3: compara datas com horário local ────────────────────────────────
 type AppointmentTimeStatus = "ok" | "late" | "missed"
 
 function getAppointmentTimeStatus(
@@ -53,22 +53,18 @@ function getAppointmentTimeStatus(
 ): AppointmentTimeStatus {
   const now = new Date()
   const todayString = toLocalDateString(now)
-
   if (appointmentDate !== todayString) {
     if (appointmentDate < todayString) return "missed"
     return "ok"
   }
-
   const nowMinutes = now.getHours() * 60 + now.getMinutes()
   const apptMinutes = timeToMinutes(appointmentTime)
   const closingMinutes = closingHour * 60
-
   if (nowMinutes >= closingMinutes) return "missed"
   if (nowMinutes >= apptMinutes + 15) return "late"
   return "ok"
 }
 
-// ── Helpers de calendário ─────────────────────────────────────────────────────
 function getWeekDays(referenceDate: Date): Date[] {
   const d = new Date(referenceDate)
   const day = d.getDay()
@@ -93,8 +89,26 @@ function getMonthDays(referenceDate: Date): (Date | null)[] {
   return days
 }
 
-// ── Componente principal ──────────────────────────────────────────────────────
+const CANCEL_REASONS = [
+  "Falta de dinheiro",
+  "Falta de tempo",
+  "Compromisso",
+  "Imprevisto",
+  "Outros",
+]
+
+const STATUS_OPTIONS = [
+  { value: "Pendente", label: "Pendente" },
+  { value: "Confirmada", label: "Confirmada" },
+  { value: "Atrasado", label: "Atrasado" },
+  { value: "Em Andamento", label: "Em Andamento" },
+  { value: "Concluída", label: "Concluída" },
+  { value: "Cancelada", label: "Cancelada" },
+  { value: "Falta", label: "Falta" },
+]
+
 export function AgendaView() {
+  const router = useRouter()
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<"day" | "week" | "month">("day")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -102,12 +116,18 @@ export function AgendaView() {
   const [formError, setFormError] = useState<string | null>(null)
   const [, setTick] = useState(0)
 
+  // Modal de cancelamento
+  const [cancelTarget, setCancelTarget] = useState<{ id: string; patientName: string } | null>(null)
+  const [cancelStep, setCancelStep] = useState<"confirm" | "reason">("confirm")
+  const [cancelReason, setCancelReason] = useState("")
+  const [cancelOtherText, setCancelOtherText] = useState("")
+  const [isCancelling, setIsCancelling] = useState(false)
+
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 60_000)
     return () => clearInterval(interval)
   }, [])
 
-  // FIX BUG 4: usa data local em todos os lugares
   const dateString = toLocalDateString(selectedDate)
   const todayString = toLocalDateString(new Date())
   const isPastDate = dateString < todayString
@@ -117,7 +137,6 @@ export function AgendaView() {
   const weekDays = getWeekDays(selectedDate)
   const weekStart = toLocalDateString(weekDays[0])
   const weekEnd = toLocalDateString(weekDays[6])
-
   const monthDays = getMonthDays(selectedDate)
   const monthStart = toLocalDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
   const monthEnd = toLocalDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0))
@@ -135,34 +154,23 @@ export function AgendaView() {
   const monthAppointments: any[] = monthData?.data || []
 
   const { patients } = usePatients()
-
-  const [newAppointment, setNewAppointment] = useState({
-    patient_id: "",
-    procedure_type: "Consulta",
-    time: "",
-    duration_minutes: 60,
-    notes: "",
-    doctor_name: "",
-  })
-
   const { data: staffRes } = useSWR("/api/clinic-staff", (url: string) => fetch(url).then(r => r.json()))
   const staff = staffRes?.data || []
-
   const { data: settingsRes } = useSWR("/api/clinic-settings", (url: string) => fetch(url).then(r => r.json()))
   const closingHour: number = settingsRes?.data?.working_hours?.end
     ? parseInt(settingsRes.data.working_hours.end.split(":")[0])
     : DEFAULT_CLOSING_HOUR
 
-  const openingHour: number = settingsRes?.data?.working_hours?.start
-    ? parseInt(settingsRes.data.working_hours.start.split(":")[0])
-    : 8
+  const [newAppointment, setNewAppointment] = useState({
+    patient_id: "", procedure_type: "Consulta", time: "",
+    duration_minutes: 60, notes: "", doctor_name: "",
+  })
 
   const resetForm = () => {
     setNewAppointment({ patient_id: "", procedure_type: "Consulta", time: "", duration_minutes: 60, notes: "", doctor_name: "" })
     setFormError(null)
   }
 
-  // FIX BUG 1: validação de horário usa hora local corretamente
   const getCurrentTimeString = () => {
     const now = new Date()
     return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
@@ -171,22 +179,17 @@ export function AgendaView() {
   const handleCreateAppointment = async () => {
     setFormError(null)
     if (!newAppointment.patient_id) { setFormError("Selecione um paciente."); return }
-    if (!newAppointment.procedure_type) { setFormError("Selecione o tipo de procedimento."); return }
-    if (!newAppointment.time) { setFormError("Informe o horário do agendamento."); return }
-    if (!newAppointment.doctor_name?.trim()) { setFormError("Selecione ou informe o dentista responsável."); return }
+    if (!newAppointment.time) { setFormError("Informe o horário."); return }
+    if (!newAppointment.doctor_name?.trim()) { setFormError("Informe o dentista responsável."); return }
     if (dateString < todayString) { setFormError("Não é possível agendar em datas passadas."); return }
-
-    // FIX BUG 1: compara minutos corretamente sem adicionar horas extras
     if (dateString === todayString) {
       const now = new Date()
       const nowMinutes = now.getHours() * 60 + now.getMinutes()
-      const apptMinutes = timeToMinutes(newAppointment.time)
-      if (apptMinutes <= nowMinutes) {
+      if (timeToMinutes(newAppointment.time) <= nowMinutes) {
         setFormError("Não é possível agendar para um horário que já passou.")
         return
       }
     }
-
     setIsCreating(true)
     try {
       await createAppointment({
@@ -204,7 +207,7 @@ export function AgendaView() {
       setIsDialogOpen(false)
       resetForm()
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Erro ao agendar consulta"
+      const message = err instanceof Error ? err.message : "Erro ao agendar"
       setFormError(message)
       toast.error(message)
     } finally {
@@ -212,34 +215,64 @@ export function AgendaView() {
     }
   }
 
-  const handleUpdateStatus = async (id: string, status: string) => {
+  const handleUpdateStatus = useCallback(async (id: string, status: string) => {
     try {
       await updateAppointment(id, { status } as any)
-      toast.success("Status atualizado!")
       mutate()
     } catch {
       toast.error("Erro ao atualizar status")
     }
-  }
+  }, [mutate])
 
-  const handleAutoMissed = async (id: string) => {
+  const handleAutoMissed = useCallback(async (id: string) => {
     try {
       await updateAppointment(id, { status: "Falta" } as any)
       mutate()
     } catch { /* silencioso */ }
+  }, [mutate])
+
+  // Iniciar: atualiza status e redireciona para prontuário
+  const handleIniciar = async (appointment: any) => {
+    await handleUpdateStatus(appointment.id, "Em Andamento")
+    router.push(`/prontuario/${appointment.patient_id}`)
+  }
+
+  // Cancelamento com modal
+  const openCancelModal = (id: string, patientName: string) => {
+    setCancelTarget({ id, patientName })
+    setCancelStep("confirm")
+    setCancelReason("")
+    setCancelOtherText("")
+  }
+
+  const handleCancelConfirm = () => setCancelStep("reason")
+
+  const handleCancelFinish = async () => {
+    if (!cancelTarget) return
+    if (!cancelReason) { toast.error("Selecione um motivo."); return }
+    setIsCancelling(true)
+    try {
+      const notes = cancelReason === "Outros" && cancelOtherText
+        ? `Cancelado: Outros — ${cancelOtherText}`
+        : `Cancelado: ${cancelReason}`
+      await updateAppointment(cancelTarget.id, { status: "Cancelada", notes } as any)
+      toast.success("Consulta cancelada.")
+      mutate()
+      setCancelTarget(null)
+    } catch {
+      toast.error("Erro ao cancelar.")
+    } finally {
+      setIsCancelling(false)
+    }
   }
 
   const formatTime = (t: string) => t ? t.substring(0, 5) : "--:--"
-
   const formatDisplayDate = (date: Date) =>
     date.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" })
-
   const formatWeekday = (date: Date) =>
     date.toLocaleDateString("pt-BR", { weekday: "long" })
-
   const formatShortWeekday = (date: Date) =>
     date.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "")
-
   const formatMonthYear = (date: Date) =>
     date.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
 
@@ -254,22 +287,20 @@ export function AgendaView() {
 
   const getStatusBadge = (status: string) => {
     const map: Record<string, string> = {
-      "Confirmada": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-      "Pendente": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-      "Em Andamento": "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-      "Concluída": "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400",
-      "Cancelada": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-      "Falta": "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
+      "Confirmada": "bg-green-100 text-green-800",
+      "Pendente": "bg-blue-100 text-blue-800",
+      "Atrasado": "bg-yellow-100 text-yellow-800",
+      "Em Andamento": "bg-yellow-100 text-yellow-800",
+      "Concluída": "bg-gray-100 text-gray-800",
+      "Cancelada": "bg-red-100 text-red-800",
+      "Falta": "bg-orange-100 text-orange-800",
     }
     return <Badge className={map[status] || ""}>{status}</Badge>
   }
 
   const confirmedCount = appointments?.filter(a => a.status === "Confirmada").length || 0
-  const pendingCount = appointments?.filter(a => a.status === "Pendente").length || 0
-  // FIX BUG 7: conta cancelados
+  const pendingCount = appointments?.filter(a => a.status === "Pendente" || a.status === "Atrasado").length || 0
   const cancelledCount = appointments?.filter(a => a.status === "Cancelada" || a.status === "Falta").length || 0
-
-  // FIX BUG 5: taxa de ocupação sem limite de 100%
   const occupancyRate = appointments ? Math.round((appointments.length / 8) * 100) : 0
   const occupancyWidth = Math.min(occupancyRate, 100)
 
@@ -288,7 +319,6 @@ export function AgendaView() {
     )
   }
 
-  // ── VIEW SEMANAL ──────────────────────────────────────────────────────────
   const WeekView = () => (
     <div className="grid grid-cols-7 gap-2">
       {weekDays.map((day) => {
@@ -298,14 +328,10 @@ export function AgendaView() {
         const dayAppts = weekAppointments.filter((a: any) => a.date === ds)
         return (
           <div key={ds} className="flex flex-col gap-1">
-            <button
-              onClick={() => { setSelectedDate(day); setViewMode("day") }}
-              className={`rounded-lg p-2 text-center transition-colors hover:bg-muted ${isToday ? "bg-primary text-primary-foreground" : "bg-muted/40"}`}
-            >
+            <button onClick={() => { setSelectedDate(day); setViewMode("day") }}
+              className={`rounded-lg p-2 text-center transition-colors hover:bg-muted ${isToday ? "bg-primary text-primary-foreground" : "bg-muted/40"}`}>
               <div className="text-xs font-medium capitalize">{formatShortWeekday(day)}</div>
-              <div className={`text-lg font-bold ${isToday ? "" : isPast ? "text-muted-foreground" : "text-foreground"}`}>
-                {day.getDate()}
-              </div>
+              <div className={`text-lg font-bold ${isToday ? "" : isPast ? "text-muted-foreground" : "text-foreground"}`}>{day.getDate()}</div>
             </button>
             <div className="flex flex-col gap-1 min-h-[80px]">
               {dayAppts.length === 0 ? (
@@ -321,9 +347,7 @@ export function AgendaView() {
               )}
               {dayAppts.length > 3 && (
                 <button onClick={() => { setSelectedDate(day); setViewMode("day") }}
-                  className="text-xs text-primary hover:underline text-center">
-                  +{dayAppts.length - 3} mais
-                </button>
+                  className="text-xs text-primary hover:underline text-center">+{dayAppts.length - 3} mais</button>
               )}
             </div>
           </div>
@@ -332,7 +356,6 @@ export function AgendaView() {
     </div>
   )
 
-  // ── VIEW MENSAL ───────────────────────────────────────────────────────────
   const MonthView = () => {
     const weekdayLabels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
     return (
@@ -376,85 +399,106 @@ export function AgendaView() {
     )
   }
 
-  // ── CARD DE AGENDAMENTO ───────────────────────────────────────────────────
-  const AppointmentCard = ({ appointment }: { appointment: any }) => {
-    const isActiveStatus = appointment.status === "Pendente" || appointment.status === "Confirmada"
+  // ── TABELA DE CONSULTAS ────────────────────────────────────────────────────
+  const AppointmentRow = ({ appointment }: { appointment: any }) => {
+    const isActiveStatus = appointment.status === "Pendente" || appointment.status === "Confirmada" || appointment.status === "Atrasado"
     const timeStatus = isActiveStatus
       ? getAppointmentTimeStatus(appointment.date, appointment.time, closingHour)
       : "ok"
 
+    // Auto-falta
     if (timeStatus === "missed" && isActiveStatus) handleAutoMissed(appointment.id)
 
+    // Auto-atrasado
+    const currentStatus = timeStatus === "late" && appointment.status !== "Atrasado" && isActiveStatus
+      ? "Atrasado"
+      : appointment.status
+
+    if (currentStatus === "Atrasado" && appointment.status !== "Atrasado") {
+      handleUpdateStatus(appointment.id, "Atrasado")
+    }
+
+    const rowBg = timeStatus === "missed"
+      ? "bg-orange-50 dark:bg-orange-950/20"
+      : timeStatus === "late" || currentStatus === "Atrasado"
+      ? "bg-yellow-50 dark:bg-yellow-950/20"
+      : ""
+
+    const canStart = appointment.status !== "Concluída" &&
+      appointment.status !== "Cancelada" &&
+      appointment.status !== "Falta" &&
+      appointment.status !== "Em Andamento" &&
+      timeStatus !== "missed"
+
+    const canCancel = appointment.status !== "Concluída" &&
+      appointment.status !== "Cancelada" &&
+      appointment.status !== "Falta"
+
     return (
-      <div className={`flex items-center justify-between rounded-lg border p-4 ${
-        timeStatus === "missed" ? "border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-950/20"
-        : timeStatus === "late" ? "border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20"
-        : "border-border bg-muted/30"
-      }`}>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center justify-center rounded-lg bg-primary/10 px-3 py-2 min-w-[80px]">
-            <Clock className="h-4 w-4 text-primary mr-2" />
-            <span className="text-sm font-medium text-foreground">{formatTime(appointment.time)}</span>
-          </div>
-          <div>
-            <p className="text-sm font-medium text-foreground">{appointment.patient?.full_name || "Paciente"}</p>
-            <p className="text-xs text-muted-foreground">
-              {appointment.procedure_type}
-              {appointment.doctor_name && ` - Dr(a). ${appointment.doctor_name}`}
-            </p>
-            {timeStatus === "late" && (
-              <div className="flex items-center gap-1 mt-1">
-                <AlertTriangle className="h-3 w-3 text-yellow-600" />
-                <span className="text-xs text-yellow-600 font-medium">Atrasado</span>
-              </div>
+      <tr className={`border-b border-border transition-colors ${rowBg}`}>
+        {/* Horário */}
+        <td className="py-3 px-4 text-sm font-medium text-foreground whitespace-nowrap">
+          <div className="flex items-center gap-1">
+            {formatTime(appointment.time)}
+            {(timeStatus === "late" || currentStatus === "Atrasado") && (
+              <AlertTriangle className="h-3 w-3 text-yellow-600" />
             )}
           </div>
-          {getStatusBadge(appointment.status)}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* FIX BUG 6: Confirmar disponível em Pendente */}
-          {appointment.status === "Pendente" && timeStatus !== "missed" && (
-            <Button variant="outline" size="sm" className="bg-transparent"
-              onClick={() => handleUpdateStatus(appointment.id, "Confirmada")}>
-              Confirmar
+        </td>
+        {/* Paciente */}
+        <td className="py-3 px-4 text-sm text-foreground">
+          {appointment.patient?.full_name || "—"}
+        </td>
+        {/* Profissional */}
+        <td className="py-3 px-4 text-sm text-muted-foreground">
+          {appointment.doctor_name ? `Dr(a). ${appointment.doctor_name}` : "—"}
+        </td>
+        {/* Status dropdown */}
+        <td className="py-3 px-4">
+          <Select
+            value={appointment.status}
+            onValueChange={(val) => {
+              if (val === "Cancelada") {
+                openCancelModal(appointment.id, appointment.patient?.full_name || "Paciente")
+              } else {
+                handleUpdateStatus(appointment.id, val)
+              }
+            }}
+          >
+            <SelectTrigger className="h-7 w-36 text-xs border-0 bg-transparent p-0 shadow-none focus:ring-0">
+              <SelectValue>{getStatusBadge(appointment.status)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.filter(o => {
+                if (o.value === "Cancelada") return canCancel
+                return true
+              }).map(o => (
+                <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </td>
+        {/* Ação */}
+        <td className="py-3 px-4 text-right">
+          {canStart && (
+            <Button size="sm" onClick={() => handleIniciar(appointment)}>
+              Iniciar
             </Button>
           )}
-          {/* FIX BUG 6: Cancelar disponível em Pendente e Confirmada, não só Em Andamento */}
-          {isActiveStatus && timeStatus !== "missed" && (
-            <>
-              <Button size="sm"
-                onClick={() => handleUpdateStatus(appointment.id, "Em Andamento")}>
-                Iniciar
-              </Button>
-              <Button size="sm" variant="outline"
-                className="bg-transparent text-destructive border-destructive/30 hover:bg-destructive/10"
-                onClick={() => handleUpdateStatus(appointment.id, "Cancelada")}>
-                Cancelar
-              </Button>
-            </>
-          )}
           {appointment.status === "Em Andamento" && (
-            <>
-              <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 animate-pulse">
-                Em atendimento
-              </Badge>
-              <Button size="sm" variant="outline"
-                className="bg-transparent text-destructive border-destructive/30 hover:bg-destructive/10"
-                onClick={() => handleUpdateStatus(appointment.id, "Cancelada")}>
-                Cancelar
-              </Button>
+            <div className="flex items-center justify-end gap-2">
+              <Badge className="bg-yellow-100 text-yellow-800 animate-pulse text-xs">Em atendimento</Badge>
               <Button size="sm" className="bg-success text-white hover:bg-success/90"
                 onClick={() => handleUpdateStatus(appointment.id, "Concluída")}>
                 Encerrar
               </Button>
-            </>
+            </div>
           )}
           {appointment.status === "Concluída" && <Badge className="bg-gray-100 text-gray-800">Encerrado</Badge>}
           {appointment.status === "Cancelada" && <Badge className="bg-red-100 text-red-800">Cancelada</Badge>}
           {appointment.status === "Falta" && <Badge className="bg-orange-100 text-orange-800">Falta</Badge>}
-        </div>
-      </div>
+        </td>
+      </tr>
     )
   }
 
@@ -465,6 +509,7 @@ export function AgendaView() {
         <p className="text-muted-foreground">Gerencie consultas com sugestões automáticas</p>
       </div>
 
+      {/* Navegação */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -480,7 +525,6 @@ export function AgendaView() {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
-
             <div className="flex gap-2">
               {(["day", "week", "month"] as const).map((mode) => (
                 <Button key={mode} variant={viewMode === mode ? "default" : "outline"} size="sm"
@@ -489,12 +533,10 @@ export function AgendaView() {
                 </Button>
               ))}
             </div>
-
             <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm() }}>
               <DialogTrigger asChild>
                 <Button className="gap-2" disabled={isPastDate && viewMode === "day"}>
-                  <Plus className="h-4 w-4" />
-                  Novo Agendamento
+                  <Plus className="h-4 w-4" />Novo Agendamento
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-[500px]">
@@ -505,23 +547,20 @@ export function AgendaView() {
                 <div className="grid gap-4 py-4">
                   {formError && (
                     <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span>{formError}</span>
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{formError}</span>
                     </div>
                   )}
                   <div className="grid gap-2">
                     <Label>Paciente *</Label>
                     <Select value={newAppointment.patient_id} onValueChange={(v) => setNewAppointment({ ...newAppointment, patient_id: v })}>
                       <SelectTrigger><SelectValue placeholder="Selecione um paciente" /></SelectTrigger>
-                      <SelectContent>
-                        {patients?.map(p => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
-                      </SelectContent>
+                      <SelectContent>{patients?.map(p => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                   <div className="grid gap-2">
                     <Label>Procedimento *</Label>
                     <Select value={newAppointment.procedure_type} onValueChange={(v) => setNewAppointment({ ...newAppointment, procedure_type: v })}>
-                      <SelectTrigger><SelectValue placeholder="Selecione o procedimento" /></SelectTrigger>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {["Consulta","Limpeza","Tratamento","Cirurgia","Emergencia","Retorno"].map(p => (
                           <SelectItem key={p} value={p}>{p}</SelectItem>
@@ -532,7 +571,6 @@ export function AgendaView() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="grid gap-2">
                       <Label>Horário *</Label>
-                      {/* FIX BUG 1: min calculado corretamente com hora local */}
                       <Input type="time" value={newAppointment.time}
                         min={dateString === todayString ? getCurrentTimeString() : undefined}
                         onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })} />
@@ -572,6 +610,57 @@ export function AgendaView() {
         </CardContent>
       </Card>
 
+      {/* Modal de cancelamento */}
+      <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null) }}>
+        <DialogContent className="sm:max-w-[400px]">
+          {cancelStep === "confirm" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Cancelar consulta</DialogTitle>
+                <DialogDescription>
+                  Tem certeza que deseja cancelar a consulta de <strong>{cancelTarget?.patientName}</strong>?
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCancelTarget(null)}>Não, voltar</Button>
+                <Button variant="destructive" onClick={handleCancelConfirm}>Sim, cancelar</Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Motivo do cancelamento</DialogTitle>
+                <DialogDescription>Selecione o motivo para registrar no histórico.</DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-3 py-2">
+                <Select value={cancelReason} onValueChange={setCancelReason}>
+                  <SelectTrigger><SelectValue placeholder="Selecione um motivo" /></SelectTrigger>
+                  <SelectContent>
+                    {CANCEL_REASONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {cancelReason === "Outros" && (
+                  <Textarea
+                    placeholder="Descreva o motivo (opcional)..."
+                    value={cancelOtherText}
+                    onChange={(e) => setCancelOtherText(e.target.value)}
+                    className="resize-none"
+                    rows={3}
+                  />
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCancelTarget(null)}>Voltar</Button>
+                <Button variant="destructive" onClick={handleCancelFinish} disabled={isCancelling || !cancelReason}>
+                  {isCancelling ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cancelando...</> : "Confirmar cancelamento"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Views */}
       {viewMode === "week" && (
         <Card>
           <CardHeader className="pb-3"><CardTitle className="text-base">Visão Semanal</CardTitle></CardHeader>
@@ -590,13 +679,15 @@ export function AgendaView() {
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-3">
-                <CardTitle className="text-base">Consultas do Dia</CardTitle>
-                <span className="text-sm text-muted-foreground">
-                  {isLoading ? "..." : `${appointments?.length || 0} agendamentos`}
-                </span>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Consultas do Dia</CardTitle>
+                  <span className="text-sm text-muted-foreground">
+                    {isLoading ? "..." : `${appointments?.length || 0} agendamentos`}
+                  </span>
+                </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="p-0">
                 {isLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -611,7 +702,22 @@ export function AgendaView() {
                     )}
                   </div>
                 ) : (
-                  appointments.map(appt => <AppointmentCard key={appt.id} appointment={appt} />)
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/50">
+                          <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Horário</th>
+                          <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Paciente</th>
+                          <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Profissional</th>
+                          <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Status</th>
+                          <th className="py-2 px-4 text-right text-xs font-medium text-muted-foreground"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {appointments.map(appt => <AppointmentRow key={appt.id} appointment={appt} />)}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -621,15 +727,11 @@ export function AgendaView() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-3">
                 <CardTitle className="text-base">Estatísticas do Dia</CardTitle>
-                {/* FIX BUG 8: link para relatórios */}
-                <Link href="/relatorios" className="text-xs text-primary hover:underline">
-                  Ver relatório →
-                </Link>
+                <Link href="/relatorios" className="text-xs text-primary hover:underline">Ver relatório →</Link>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Taxa de Ocupação</span>
-                  {/* FIX BUG 5: mostra acima de 100% */}
                   <span className={`text-sm font-semibold ${occupancyRate > 100 ? "text-orange-500" : "text-foreground"}`}>
                     {occupancyRate}%{occupancyRate > 100 ? " ⚠️" : ""}
                   </span>
@@ -641,20 +743,19 @@ export function AgendaView() {
                 <div className="pt-2 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Total de Consultas</span>
-                    <span className="text-sm font-semibold text-foreground">{appointments?.length || 0}</span>
+                    <span className="text-sm font-semibold">{appointments?.length || 0}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Confirmadas</span>
-                    <Badge variant="default" className="bg-success/10 text-success hover:bg-success/20">{confirmedCount}</Badge>
+                    <Badge className="bg-success/10 text-success">{confirmedCount}</Badge>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Pendentes</span>
-                    <Badge variant="secondary" className="bg-warning/10 text-warning hover:bg-warning/20">{pendingCount}</Badge>
+                    <Badge className="bg-warning/10 text-warning">{pendingCount}</Badge>
                   </div>
-                  {/* FIX BUG 7: canceladas no card */}
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Canceladas/Falta</span>
-                    <Badge variant="secondary" className="bg-red-100 text-red-700">{cancelledCount}</Badge>
+                    <Badge className="bg-red-100 text-red-700">{cancelledCount}</Badge>
                   </div>
                 </div>
               </CardContent>
