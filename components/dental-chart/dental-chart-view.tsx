@@ -16,7 +16,6 @@ export function DentalChartView({ patientId }: DentalChartViewProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [savingTooth, setSavingTooth] = useState<number | null>(null)
 
-  // Carrega os dados do banco ao montar o componente
   useEffect(() => {
     if (!patientId) return
 
@@ -27,7 +26,9 @@ export function DentalChartView({ patientId }: DentalChartViewProps) {
         if (!data) return
         const mapped: Record<number, ToothCondition> = {}
         for (const row of data) {
-          mapped[row.tooth_number] = row.condition
+          if (row.condition && row.condition !== "Sem Registros") {
+            mapped[row.tooth_number] = row.condition
+          }
         }
         setToothData(mapped)
       })
@@ -35,12 +36,10 @@ export function DentalChartView({ patientId }: DentalChartViewProps) {
       .finally(() => setIsLoading(false))
   }, [patientId])
 
-  // Salva no banco ao alterar condição
   const handleConditionChange = useCallback(async (tooth: number, condition: ToothCondition) => {
-    // Atualiza o estado local imediatamente (otimista)
     setToothData(prev => {
       const updated = { ...prev }
-      if (condition === "none") {
+      if (condition === "Sem Registros") {
         delete updated[tooth]
       } else {
         updated[tooth] = condition
@@ -58,7 +57,7 @@ export function DentalChartView({ patientId }: DentalChartViewProps) {
         body: JSON.stringify({
           patient_id: patientId,
           tooth_number: tooth,
-          condition: condition === "none" ? null : condition,
+          condition: condition,
           notes: null,
         }),
       })
@@ -69,17 +68,15 @@ export function DentalChartView({ patientId }: DentalChartViewProps) {
     }
   }, [patientId])
 
-  const selectedCondition = selectedTooth ? toothData[selectedTooth] || "none" : null
+  const selectedCondition = selectedTooth ? toothData[selectedTooth] || "Sem Registros" : null
   const selectedConditionDef = selectedCondition ? CONDITIONS.find(c => c.value === selectedCondition) : null
 
   const registeredCount = Object.keys(toothData).length
 
   return (
     <div className="space-y-6">
-      {/* Legend */}
       <ChartLegend />
 
-      {/* Dental Chart */}
       <Card>
         <CardContent className="p-6">
           {isLoading ? (
@@ -110,7 +107,6 @@ export function DentalChartView({ patientId }: DentalChartViewProps) {
         </CardContent>
       </Card>
 
-      {/* Selected tooth info */}
       {selectedTooth && (
         <Card>
           <CardContent className="p-4">
@@ -118,13 +114,13 @@ export function DentalChartView({ patientId }: DentalChartViewProps) {
               <div>
                 <p className="text-sm font-semibold text-foreground">Dente {selectedTooth}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {selectedConditionDef?.value === "none"
+                  {selectedConditionDef?.value === "Sem Registros"
                     ? "Nenhuma condição registrada. Clique no dente para selecionar."
                     : `Condição: ${selectedConditionDef?.label}`
                   }
                 </p>
               </div>
-              {selectedConditionDef && selectedConditionDef.value !== "none" && (
+              {selectedConditionDef && selectedConditionDef.value !== "Sem Registros" && (
                 <Badge className={`${selectedConditionDef.dotColor} text-white`}>
                   {selectedConditionDef.label}
                 </Badge>
