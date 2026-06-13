@@ -34,6 +34,8 @@ export type Appointment = {
   duration_minutes: number | null
   procedure_type: string
   status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show'
+  cost: number | null
+  payment_method: string | null
   notes: string | null
   created_at: string
   updated_at: string

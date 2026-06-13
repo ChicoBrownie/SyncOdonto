@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, ChevronLeft, ChevronRight, Plus, Loader2, AlertCircle, AlertTriangle } from "lucide-react"
+import { Calendar, ChevronLeft, ChevronRight, Plus, Loader2, AlertCircle, AlertTriangle, Pencil, Check, X } from "lucide-react"
 import { useAppointments, usePatients, createAppointment, updateAppointment } from "@/lib/hooks/use-data"
 import {
   Dialog,
@@ -22,6 +22,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -31,6 +36,8 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 const DEFAULT_CLOSING_HOUR = 18
+
+const PAYMENT_METHODS = ["Espécie", "Cartão Débito", "Cartão Crédito", "Pix"]
 
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number)
@@ -42,6 +49,11 @@ function toLocalDateString(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0")
   const d = String(date.getDate()).padStart(2, "0")
   return `${y}-${m}-${d}`
+}
+
+function formatCurrency(value: number | null) {
+  if (value === null || value === undefined) return "—"
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
 }
 
 type AppointmentTimeStatus = "ok" | "late" | "missed"
@@ -116,7 +128,6 @@ export function AgendaView() {
   const [formError, setFormError] = useState<string | null>(null)
   const [, setTick] = useState(0)
 
-  // Modal de cancelamento
   const [cancelTarget, setCancelTarget] = useState<{ id: string; patientName: string } | null>(null)
   const [cancelStep, setCancelStep] = useState<"confirm" | "reason">("confirm")
   const [cancelReason, setCancelReason] = useState("")
@@ -228,16 +239,14 @@ export function AgendaView() {
     try {
       await updateAppointment(id, { status: "Falta" } as any)
       mutate()
-    } catch { /* silencioso */ }
+    } catch { }
   }, [mutate])
 
-  // Iniciar: atualiza status e redireciona para prontuário
   const handleIniciar = async (appointment: any) => {
     await handleUpdateStatus(appointment.id, "Em Andamento")
     router.push(`/prontuario/${appointment.patient_id}`)
   }
 
-  // Cancelamento com modal
   const openCancelModal = (id: string, patientName: string) => {
     setCancelTarget({ id, patientName })
     setCancelStep("confirm")
@@ -248,8 +257,7 @@ export function AgendaView() {
   const handleCancelConfirm = () => setCancelStep("reason")
 
   const handleCancelFinish = async () => {
-    if (!cancelTarget) return
-    if (!cancelReason) { toast.error("Selecione um motivo."); return }
+    if (!cancelTarget || !cancelReason) { toast.error("Selecione um motivo."); return }
     setIsCancelling(true)
     try {
       const notes = cancelReason === "Outros" && cancelOtherText
@@ -399,20 +407,89 @@ export function AgendaView() {
     )
   }
 
-  // ── TABELA DE CONSULTAS ────────────────────────────────────────────────────
+  // ── Popover de edição de valor ────────────────────────────────────────────
+  const ValueEditor = ({ appointment }: { appointment: any }) => {
+    const [open, setOpen] = useState(false)
+    const [cost, setCost] = useState(appointment.cost?.toString() || "")
+    const [paymentMethod, setPaymentMethod] = useState(appointment.payment_method || "")
+    const [saving, setSaving] = useState(false)
+
+    const handleSave = async () => {
+      setSaving(true)
+      try {
+        await updateAppointment(appointment.id, {
+          cost: cost ? Number(cost) : null,
+          payment_method: paymentMethod || null,
+        } as any)
+        toast.success("Valor atualizado!")
+        mutate()
+        setOpen(false)
+      } catch {
+        toast.error("Erro ao salvar valor.")
+      } finally {
+        setSaving(false)
+      }
+    }
+
+    return (
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button className="flex items-center gap-1 group hover:text-primary transition-colors">
+            <span className="text-sm font-medium">
+              {appointment.cost ? formatCurrency(appointment.cost) : <span className="text-muted-foreground text-xs">Adicionar valor</span>}
+            </span>
+            <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 p-4" align="end">
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-foreground">Editar valor</p>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Valor (R$)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0,00"
+                value={cost}
+                onChange={(e) => setCost(e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Forma de pagamento</Label>
+              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" className="flex-1 h-7 text-xs" onClick={handleSave} disabled={saving}>
+                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Check className="h-3 w-3 mr-1" />Salvar</>}
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs bg-transparent" onClick={() => setOpen(false)}>
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+    )
+  }
+
+  // ── Linha da tabela ───────────────────────────────────────────────────────
   const AppointmentRow = ({ appointment }: { appointment: any }) => {
     const isActiveStatus = appointment.status === "Pendente" || appointment.status === "Confirmada" || appointment.status === "Atrasado"
     const timeStatus = isActiveStatus
       ? getAppointmentTimeStatus(appointment.date, appointment.time, closingHour)
       : "ok"
 
-    // Auto-falta
     if (timeStatus === "missed" && isActiveStatus) handleAutoMissed(appointment.id)
 
-    // Auto-atrasado
     const currentStatus = timeStatus === "late" && appointment.status !== "Atrasado" && isActiveStatus
-      ? "Atrasado"
-      : appointment.status
+      ? "Atrasado" : appointment.status
 
     if (currentStatus === "Atrasado" && appointment.status !== "Atrasado") {
       handleUpdateStatus(appointment.id, "Atrasado")
@@ -424,15 +501,8 @@ export function AgendaView() {
       ? "bg-yellow-50 dark:bg-yellow-950/20"
       : ""
 
-    const canStart = appointment.status !== "Concluída" &&
-      appointment.status !== "Cancelada" &&
-      appointment.status !== "Falta" &&
-      appointment.status !== "Em Andamento" &&
-      timeStatus !== "missed"
-
-    const canCancel = appointment.status !== "Concluída" &&
-      appointment.status !== "Cancelada" &&
-      appointment.status !== "Falta"
+    const canStart = !["Concluída","Cancelada","Falta","Em Andamento"].includes(appointment.status) && timeStatus !== "missed"
+    const canCancel = !["Concluída","Cancelada","Falta"].includes(appointment.status)
 
     return (
       <tr className={`border-b border-border transition-colors ${rowBg}`}>
@@ -446,9 +516,7 @@ export function AgendaView() {
           </div>
         </td>
         {/* Paciente */}
-        <td className="py-3 px-4 text-sm text-foreground">
-          {appointment.patient?.full_name || "—"}
-        </td>
+        <td className="py-3 px-4 text-sm text-foreground">{appointment.patient?.full_name || "—"}</td>
         {/* Profissional */}
         <td className="py-3 px-4 text-sm text-muted-foreground">
           {appointment.doctor_name ? `Dr(a). ${appointment.doctor_name}` : "—"}
@@ -469,21 +537,20 @@ export function AgendaView() {
               <SelectValue>{getStatusBadge(appointment.status)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {STATUS_OPTIONS.filter(o => {
-                if (o.value === "Cancelada") return canCancel
-                return true
-              }).map(o => (
+              {STATUS_OPTIONS.filter(o => o.value !== "Cancelada" || canCancel).map(o => (
                 <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </td>
+        {/* Valor — clicável */}
+        <td className="py-3 px-4">
+          <ValueEditor appointment={appointment} />
+        </td>
         {/* Ação */}
         <td className="py-3 px-4 text-right">
           {canStart && (
-            <Button size="sm" onClick={() => handleIniciar(appointment)}>
-              Iniciar
-            </Button>
+            <Button size="sm" onClick={() => handleIniciar(appointment)}>Iniciar</Button>
           )}
           {appointment.status === "Em Andamento" && (
             <div className="flex items-center justify-end gap-2">
@@ -509,7 +576,6 @@ export function AgendaView() {
         <p className="text-muted-foreground">Gerencie consultas com sugestões automáticas</p>
       </div>
 
-      {/* Navegação */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -640,13 +706,8 @@ export function AgendaView() {
                   </SelectContent>
                 </Select>
                 {cancelReason === "Outros" && (
-                  <Textarea
-                    placeholder="Descreva o motivo (opcional)..."
-                    value={cancelOtherText}
-                    onChange={(e) => setCancelOtherText(e.target.value)}
-                    className="resize-none"
-                    rows={3}
-                  />
+                  <Textarea placeholder="Descreva o motivo (opcional)..." value={cancelOtherText}
+                    onChange={(e) => setCancelOtherText(e.target.value)} className="resize-none" rows={3} />
                 )}
               </div>
               <DialogFooter>
@@ -660,7 +721,6 @@ export function AgendaView() {
         </DialogContent>
       </Dialog>
 
-      {/* Views */}
       {viewMode === "week" && (
         <Card>
           <CardHeader className="pb-3"><CardTitle className="text-base">Visão Semanal</CardTitle></CardHeader>
@@ -710,6 +770,7 @@ export function AgendaView() {
                           <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Paciente</th>
                           <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Profissional</th>
                           <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Status</th>
+                          <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Valor</th>
                           <th className="py-2 px-4 text-right text-xs font-medium text-muted-foreground"></th>
                         </tr>
                       </thead>
