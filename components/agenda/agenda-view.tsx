@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Calendar, ChevronLeft, ChevronRight, Plus, Loader2, AlertCircle, AlertTriangle, Pencil, Check, X } from "lucide-react"
-import { useAppointments, usePatients, createAppointment, updateAppointment } from "@/lib/hooks/use-data"
+import { useAppointments, usePatients, createAppointment, updateAppointment, createFinancialTransaction } from "@/lib/hooks/use-data"
 import {
   Dialog,
   DialogContent,
@@ -119,6 +119,15 @@ const STATUS_OPTIONS = [
   { value: "Falta", label: "Falta" },
 ]
 
+type CloseTarget = {
+  id: string
+  patientId: string
+  patientName: string
+  procedureType: string
+  cost: number | null
+  paymentMethod: string | null
+}
+
 export function AgendaView() {
   const router = useRouter()
   const [selectedDate, setSelectedDate] = useState(new Date())
@@ -128,11 +137,19 @@ export function AgendaView() {
   const [formError, setFormError] = useState<string | null>(null)
   const [, setTick] = useState(0)
 
+  // ── Estado do modal de cancelamento ──────────────────────────────────────
   const [cancelTarget, setCancelTarget] = useState<{ id: string; patientName: string } | null>(null)
   const [cancelStep, setCancelStep] = useState<"confirm" | "reason">("confirm")
   const [cancelReason, setCancelReason] = useState("")
   const [cancelOtherText, setCancelOtherText] = useState("")
   const [isCancelling, setIsCancelling] = useState(false)
+
+  // ── Estado do modal de encerramento ──────────────────────────────────────
+  const [closeTarget, setCloseTarget] = useState<CloseTarget | null>(null)
+  const [closeModalCost, setCloseModalCost] = useState("")
+  const [closeModalPayment, setCloseModalPayment] = useState("")
+  const [isClosing, setIsClosing] = useState(false)
+  const [closeModalError, setCloseModalError] = useState<string | null>(null)
 
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 60_000)
@@ -245,6 +262,67 @@ export function AgendaView() {
   const handleIniciar = async (appointment: any) => {
     await handleUpdateStatus(appointment.id, "Em Andamento")
     router.push(`/prontuario/${appointment.patient_id}`)
+  }
+
+  // ── Abrir modal de encerramento ───────────────────────────────────────────
+  const openCloseModal = (appointment: any) => {
+    setCloseTarget({
+      id: appointment.id,
+      patientId: appointment.patient_id,
+      patientName: appointment.patient?.full_name || "Paciente",
+      procedureType: appointment.procedure_type || "Consulta",
+      cost: appointment.cost ?? null,
+      paymentMethod: appointment.payment_method ?? null,
+    })
+    setCloseModalCost(appointment.cost?.toString() || "")
+    setCloseModalPayment(appointment.payment_method || "")
+    setCloseModalError(null)
+  }
+
+  // ── Confirmar encerramento: salva no financeiro e conclui agendamento ─────
+  const handleCloseFinish = async () => {
+    if (!closeTarget) return
+    const amount = parseFloat(closeModalCost)
+    if (!closeModalCost || isNaN(amount) || amount <= 0) {
+      setCloseModalError("Informe o valor da consulta para continuar.")
+      return
+    }
+    if (!closeModalPayment) {
+      setCloseModalError("Selecione a forma de pagamento.")
+      return
+    }
+    setCloseModalError(null)
+    setIsClosing(true)
+    try {
+      // 1. Atualiza o agendamento (status + valor + pagamento)
+      await updateAppointment(closeTarget.id, {
+        status: "Concluída",
+        cost: amount,
+        payment_method: closeModalPayment,
+      } as any)
+
+      // 2. Cria a transação financeira pendente de verificação
+      await createFinancialTransaction({
+        patient_id: closeTarget.patientId,
+        description: `Consulta - ${closeTarget.procedureType} (${closeTarget.patientName})`,
+        amount,
+        payment_method: closeModalPayment,
+        type: "income",
+        status: "pending",
+        verification_status: "pending_verification",
+        source_appointment_id: closeTarget.id,
+      } as any)
+
+      toast.success("Consulta encerrada e lançada no financeiro!")
+      mutate()
+      setCloseTarget(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erro ao encerrar consulta"
+      setCloseModalError(message)
+      toast.error(message)
+    } finally {
+      setIsClosing(false)
+    }
   }
 
   const openCancelModal = (id: string, patientName: string) => {
@@ -506,7 +584,6 @@ export function AgendaView() {
 
     return (
       <tr className={`border-b border-border transition-colors ${rowBg}`}>
-        {/* Horário */}
         <td className="py-3 px-4 text-sm font-medium text-foreground whitespace-nowrap">
           <div className="flex items-center gap-1">
             {formatTime(appointment.time)}
@@ -515,13 +592,10 @@ export function AgendaView() {
             )}
           </div>
         </td>
-        {/* Paciente */}
         <td className="py-3 px-4 text-sm text-foreground">{appointment.patient?.full_name || "—"}</td>
-        {/* Profissional */}
         <td className="py-3 px-4 text-sm text-muted-foreground">
           {appointment.doctor_name ? `Dr(a). ${appointment.doctor_name}` : "—"}
         </td>
-        {/* Status dropdown */}
         <td className="py-3 px-4">
           <Select
             value={appointment.status}
@@ -543,11 +617,9 @@ export function AgendaView() {
             </SelectContent>
           </Select>
         </td>
-        {/* Valor — clicável */}
         <td className="py-3 px-4">
           <ValueEditor appointment={appointment} />
         </td>
-        {/* Ação */}
         <td className="py-3 px-4 text-right">
           {canStart && (
             <Button size="sm" onClick={() => handleIniciar(appointment)}>Iniciar</Button>
@@ -555,8 +627,12 @@ export function AgendaView() {
           {appointment.status === "Em Andamento" && (
             <div className="flex items-center justify-end gap-2">
               <Badge className="bg-yellow-100 text-yellow-800 animate-pulse text-xs">Em atendimento</Badge>
-              <Button size="sm" className="bg-success text-white hover:bg-success/90"
-                onClick={() => handleUpdateStatus(appointment.id, "Concluída")}>
+              {/* Encerrar agora abre o modal de valor/pagamento */}
+              <Button
+                size="sm"
+                className="bg-success text-white hover:bg-success/90"
+                onClick={() => openCloseModal(appointment)}
+              >
                 Encerrar
               </Button>
             </div>
@@ -676,7 +752,7 @@ export function AgendaView() {
         </CardContent>
       </Card>
 
-      {/* Modal de cancelamento */}
+      {/* ── Modal de cancelamento ─────────────────────────────────────────── */}
       <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null) }}>
         <DialogContent className="sm:max-w-[400px]">
           {cancelStep === "confirm" ? (
@@ -718,6 +794,70 @@ export function AgendaView() {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal de encerramento com valor/pagamento ─────────────────────── */}
+      <Dialog open={!!closeTarget} onOpenChange={(open) => { if (!open) { setCloseTarget(null); setCloseModalError(null) } }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Encerrar consulta</DialogTitle>
+            <DialogDescription>
+              Confirme o pagamento de <strong>{closeTarget?.patientName}</strong> para encerrar o atendimento e lançar no financeiro.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-2">
+            {closeModalError && (
+              <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{closeModalError}</span>
+              </div>
+            )}
+
+            <div className="grid gap-2">
+              <Label>Valor cobrado (R$) *</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0,00"
+                value={closeModalCost}
+                onChange={(e) => { setCloseModalCost(e.target.value); setCloseModalError(null) }}
+                autoFocus
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Forma de pagamento *</Label>
+              <Select value={closeModalPayment} onValueChange={(v) => { setCloseModalPayment(v); setCloseModalError(null) }}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              O valor será lançado automaticamente no <strong>Financeiro</strong> como pendente de verificação no Fechamento de Caixa.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCloseTarget(null); setCloseModalError(null) }}>
+              Cancelar
+            </Button>
+            <Button
+              className="bg-success text-white hover:bg-success/90"
+              onClick={handleCloseFinish}
+              disabled={isClosing}
+            >
+              {isClosing
+                ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Encerrando...</>
+                : <><Check className="mr-2 h-4 w-4" />Encerrar e lançar</>
+              }
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
