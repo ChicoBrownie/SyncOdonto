@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, ChevronLeft, ChevronRight, Plus, Loader2, AlertCircle, AlertTriangle, Pencil, Check, X } from "lucide-react"
-import { useAppointments, usePatients, createAppointment, updateAppointment, createFinancialTransaction } from "@/lib/hooks/use-data"
+import { Calendar, ChevronLeft, ChevronRight, Plus, Loader2, AlertCircle, AlertTriangle } from "lucide-react"
+import { useAppointments, usePatients, createAppointment, updateAppointment } from "@/lib/hooks/use-data"
 import {
   Dialog,
   DialogContent,
@@ -22,11 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -36,8 +31,6 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 const DEFAULT_CLOSING_HOUR = 18
-
-const PAYMENT_METHODS = ["Espécie", "Cartão Débito", "Cartão Crédito", "Pix"]
 
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number)
@@ -49,11 +42,6 @@ function toLocalDateString(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0")
   const d = String(date.getDate()).padStart(2, "0")
   return `${y}-${m}-${d}`
-}
-
-function formatCurrency(value: number | null) {
-  if (value === null || value === undefined) return "—"
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
 }
 
 type AppointmentTimeStatus = "ok" | "late" | "missed"
@@ -119,15 +107,6 @@ const STATUS_OPTIONS = [
   { value: "Falta", label: "Falta" },
 ]
 
-type CloseTarget = {
-  id: string
-  patientId: string
-  patientName: string
-  procedureType: string
-  cost: number | null
-  paymentMethod: string | null
-}
-
 export function AgendaView() {
   const router = useRouter()
   const [selectedDate, setSelectedDate] = useState(new Date())
@@ -137,19 +116,12 @@ export function AgendaView() {
   const [formError, setFormError] = useState<string | null>(null)
   const [, setTick] = useState(0)
 
-  // ── Estado do modal de cancelamento ──────────────────────────────────────
+  // Modal de cancelamento
   const [cancelTarget, setCancelTarget] = useState<{ id: string; patientName: string } | null>(null)
   const [cancelStep, setCancelStep] = useState<"confirm" | "reason">("confirm")
   const [cancelReason, setCancelReason] = useState("")
   const [cancelOtherText, setCancelOtherText] = useState("")
   const [isCancelling, setIsCancelling] = useState(false)
-
-  // ── Estado do modal de encerramento ──────────────────────────────────────
-  const [closeTarget, setCloseTarget] = useState<CloseTarget | null>(null)
-  const [closeModalCost, setCloseModalCost] = useState("")
-  const [closeModalPayment, setCloseModalPayment] = useState("")
-  const [isClosing, setIsClosing] = useState(false)
-  const [closeModalError, setCloseModalError] = useState<string | null>(null)
 
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 60_000)
@@ -256,75 +228,16 @@ export function AgendaView() {
     try {
       await updateAppointment(id, { status: "Falta" } as any)
       mutate()
-    } catch { }
+    } catch { /* silencioso */ }
   }, [mutate])
 
+  // Iniciar: atualiza status e redireciona para prontuário
   const handleIniciar = async (appointment: any) => {
     await handleUpdateStatus(appointment.id, "Em Andamento")
     router.push(`/prontuario/${appointment.patient_id}`)
   }
 
-  // ── Abrir modal de encerramento ───────────────────────────────────────────
-  const openCloseModal = (appointment: any) => {
-    setCloseTarget({
-      id: appointment.id,
-      patientId: appointment.patient_id,
-      patientName: appointment.patient?.full_name || "Paciente",
-      procedureType: appointment.procedure_type || "Consulta",
-      cost: appointment.cost ?? null,
-      paymentMethod: appointment.payment_method ?? null,
-    })
-    setCloseModalCost(appointment.cost?.toString() || "")
-    setCloseModalPayment(appointment.payment_method || "")
-    setCloseModalError(null)
-  }
-
-  // ── Confirmar encerramento: salva no financeiro e conclui agendamento ─────
-  const handleCloseFinish = async () => {
-    if (!closeTarget) return
-    const amount = parseFloat(closeModalCost)
-    if (!closeModalCost || isNaN(amount) || amount <= 0) {
-      setCloseModalError("Informe o valor da consulta para continuar.")
-      return
-    }
-    if (!closeModalPayment) {
-      setCloseModalError("Selecione a forma de pagamento.")
-      return
-    }
-    setCloseModalError(null)
-    setIsClosing(true)
-    try {
-      // 1. Atualiza o agendamento (status + valor + pagamento)
-      await updateAppointment(closeTarget.id, {
-        status: "Concluída",
-        cost: amount,
-        payment_method: closeModalPayment,
-      } as any)
-
-      // 2. Cria a transação financeira pendente de verificação
-      await createFinancialTransaction({
-        patient_id: closeTarget.patientId,
-        description: `Consulta - ${closeTarget.procedureType} (${closeTarget.patientName})`,
-        amount,
-        payment_method: closeModalPayment,
-        type: "income",
-        status: "pending",
-        verification_status: "pending_verification",
-        source_appointment_id: closeTarget.id,
-      } as any)
-
-      toast.success("Consulta encerrada e lançada no financeiro!")
-      mutate()
-      setCloseTarget(null)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Erro ao encerrar consulta"
-      setCloseModalError(message)
-      toast.error(message)
-    } finally {
-      setIsClosing(false)
-    }
-  }
-
+  // Cancelamento com modal
   const openCancelModal = (id: string, patientName: string) => {
     setCancelTarget({ id, patientName })
     setCancelStep("confirm")
@@ -335,7 +248,8 @@ export function AgendaView() {
   const handleCancelConfirm = () => setCancelStep("reason")
 
   const handleCancelFinish = async () => {
-    if (!cancelTarget || !cancelReason) { toast.error("Selecione um motivo."); return }
+    if (!cancelTarget) return
+    if (!cancelReason) { toast.error("Selecione um motivo."); return }
     setIsCancelling(true)
     try {
       const notes = cancelReason === "Outros" && cancelOtherText
@@ -384,7 +298,7 @@ export function AgendaView() {
     return <Badge className={map[status] || ""}>{status}</Badge>
   }
 
-  const confirmedCount = appointments?.filter(a => a.status === "Confirmada").length || 0
+  const confirmedCount = appointments?.filter(a => a.status === "Confirmada" || a.status === "Concluída" || a.status === "Em Andamento").length || 0
   const pendingCount = appointments?.filter(a => a.status === "Pendente" || a.status === "Atrasado").length || 0
   const cancelledCount = appointments?.filter(a => a.status === "Cancelada" || a.status === "Falta").length || 0
   const occupancyRate = appointments ? Math.round((appointments.length / 8) * 100) : 0
@@ -485,89 +399,20 @@ export function AgendaView() {
     )
   }
 
-  // ── Popover de edição de valor ────────────────────────────────────────────
-  const ValueEditor = ({ appointment }: { appointment: any }) => {
-    const [open, setOpen] = useState(false)
-    const [cost, setCost] = useState(appointment.cost?.toString() || "")
-    const [paymentMethod, setPaymentMethod] = useState(appointment.payment_method || "")
-    const [saving, setSaving] = useState(false)
-
-    const handleSave = async () => {
-      setSaving(true)
-      try {
-        await updateAppointment(appointment.id, {
-          cost: cost ? Number(cost) : null,
-          payment_method: paymentMethod || null,
-        } as any)
-        toast.success("Valor atualizado!")
-        mutate()
-        setOpen(false)
-      } catch {
-        toast.error("Erro ao salvar valor.")
-      } finally {
-        setSaving(false)
-      }
-    }
-
-    return (
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button className="flex items-center gap-1 group hover:text-primary transition-colors">
-            <span className="text-sm font-medium">
-              {appointment.cost ? formatCurrency(appointment.cost) : <span className="text-muted-foreground text-xs">Adicionar valor</span>}
-            </span>
-            <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-60 transition-opacity" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="w-64 p-4" align="end">
-          <div className="space-y-3">
-            <p className="text-sm font-medium text-foreground">Editar valor</p>
-            <div className="grid gap-1.5">
-              <Label className="text-xs">Valor (R$)</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0,00"
-                value={cost}
-                onChange={(e) => setCost(e.target.value)}
-                className="h-8 text-sm"
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label className="text-xs">Forma de pagamento</Label>
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>
-                  {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" className="flex-1 h-7 text-xs" onClick={handleSave} disabled={saving}>
-                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Check className="h-3 w-3 mr-1" />Salvar</>}
-              </Button>
-              <Button size="sm" variant="outline" className="h-7 text-xs bg-transparent" onClick={() => setOpen(false)}>
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
-    )
-  }
-
-  // ── Linha da tabela ───────────────────────────────────────────────────────
+  // ── TABELA DE CONSULTAS ────────────────────────────────────────────────────
   const AppointmentRow = ({ appointment }: { appointment: any }) => {
     const isActiveStatus = appointment.status === "Pendente" || appointment.status === "Confirmada" || appointment.status === "Atrasado"
     const timeStatus = isActiveStatus
       ? getAppointmentTimeStatus(appointment.date, appointment.time, closingHour)
       : "ok"
 
+    // Auto-falta
     if (timeStatus === "missed" && isActiveStatus) handleAutoMissed(appointment.id)
 
+    // Auto-atrasado
     const currentStatus = timeStatus === "late" && appointment.status !== "Atrasado" && isActiveStatus
-      ? "Atrasado" : appointment.status
+      ? "Atrasado"
+      : appointment.status
 
     if (currentStatus === "Atrasado" && appointment.status !== "Atrasado") {
       handleUpdateStatus(appointment.id, "Atrasado")
@@ -579,11 +424,19 @@ export function AgendaView() {
       ? "bg-yellow-50 dark:bg-yellow-950/20"
       : ""
 
-    const canStart = !["Concluída","Cancelada","Falta","Em Andamento"].includes(appointment.status) && timeStatus !== "missed"
-    const canCancel = !["Concluída","Cancelada","Falta"].includes(appointment.status)
+    const canStart = appointment.status !== "Concluída" &&
+      appointment.status !== "Cancelada" &&
+      appointment.status !== "Falta" &&
+      appointment.status !== "Em Andamento" &&
+      timeStatus !== "missed"
+
+    const canCancel = appointment.status !== "Concluída" &&
+      appointment.status !== "Cancelada" &&
+      appointment.status !== "Falta"
 
     return (
       <tr className={`border-b border-border transition-colors ${rowBg}`}>
+        {/* Horário */}
         <td className="py-3 px-4 text-sm font-medium text-foreground whitespace-nowrap">
           <div className="flex items-center gap-1">
             {formatTime(appointment.time)}
@@ -592,47 +445,55 @@ export function AgendaView() {
             )}
           </div>
         </td>
-        <td className="py-3 px-4 text-sm text-foreground">{appointment.patient?.full_name || "—"}</td>
+        {/* Paciente */}
+        <td className="py-3 px-4 text-sm text-foreground">
+          {appointment.patient?.full_name || "—"}
+        </td>
+        {/* Profissional */}
         <td className="py-3 px-4 text-sm text-muted-foreground">
           {appointment.doctor_name ? `Dr(a). ${appointment.doctor_name}` : "—"}
         </td>
+        {/* Status — travado após encerramento */}
         <td className="py-3 px-4">
-          <Select
-            value={appointment.status}
-            onValueChange={(val) => {
-              if (val === "Cancelada") {
-                openCancelModal(appointment.id, appointment.patient?.full_name || "Paciente")
-              } else {
-                handleUpdateStatus(appointment.id, val)
-              }
-            }}
-          >
-            <SelectTrigger className="h-7 w-36 text-xs border-0 bg-transparent p-0 shadow-none focus:ring-0">
-              <SelectValue>{getStatusBadge(appointment.status)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_OPTIONS.filter(o => o.value !== "Cancelada" || canCancel).map(o => (
-                <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {["Concluída", "Cancelada", "Falta"].includes(appointment.status) ? (
+            <div className="py-1">{getStatusBadge(appointment.status)}</div>
+          ) : (
+            <Select
+              value={appointment.status}
+              onValueChange={(val) => {
+                if (val === "Cancelada") {
+                  openCancelModal(appointment.id, appointment.patient?.full_name || "Paciente")
+                } else {
+                  handleUpdateStatus(appointment.id, val)
+                }
+              }}
+            >
+              <SelectTrigger className="h-7 w-36 text-xs border-0 bg-transparent p-0 shadow-none focus:ring-0">
+                <SelectValue>{getStatusBadge(appointment.status)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_OPTIONS.filter(o => {
+                  if (o.value === "Cancelada") return canCancel
+                  return true
+                }).map(o => (
+                  <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </td>
-        <td className="py-3 px-4">
-          <ValueEditor appointment={appointment} />
-        </td>
+        {/* Ação */}
         <td className="py-3 px-4 text-right">
           {canStart && (
-            <Button size="sm" onClick={() => handleIniciar(appointment)}>Iniciar</Button>
+            <Button size="sm" onClick={() => handleIniciar(appointment)}>
+              Iniciar
+            </Button>
           )}
           {appointment.status === "Em Andamento" && (
             <div className="flex items-center justify-end gap-2">
               <Badge className="bg-yellow-100 text-yellow-800 animate-pulse text-xs">Em atendimento</Badge>
-              {/* Encerrar agora abre o modal de valor/pagamento */}
-              <Button
-                size="sm"
-                className="bg-success text-white hover:bg-success/90"
-                onClick={() => openCloseModal(appointment)}
-              >
+              <Button size="sm" className="bg-success text-white hover:bg-success/90"
+                onClick={() => handleUpdateStatus(appointment.id, "Concluída")}>
                 Encerrar
               </Button>
             </div>
@@ -652,6 +513,7 @@ export function AgendaView() {
         <p className="text-muted-foreground">Gerencie consultas com sugestões automáticas</p>
       </div>
 
+      {/* Navegação */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -752,7 +614,7 @@ export function AgendaView() {
         </CardContent>
       </Card>
 
-      {/* ── Modal de cancelamento ─────────────────────────────────────────── */}
+      {/* Modal de cancelamento */}
       <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null) }}>
         <DialogContent className="sm:max-w-[400px]">
           {cancelStep === "confirm" ? (
@@ -782,8 +644,13 @@ export function AgendaView() {
                   </SelectContent>
                 </Select>
                 {cancelReason === "Outros" && (
-                  <Textarea placeholder="Descreva o motivo (opcional)..." value={cancelOtherText}
-                    onChange={(e) => setCancelOtherText(e.target.value)} className="resize-none" rows={3} />
+                  <Textarea
+                    placeholder="Descreva o motivo (opcional)..."
+                    value={cancelOtherText}
+                    onChange={(e) => setCancelOtherText(e.target.value)}
+                    className="resize-none"
+                    rows={3}
+                  />
                 )}
               </div>
               <DialogFooter>
@@ -797,70 +664,7 @@ export function AgendaView() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Modal de encerramento com valor/pagamento ─────────────────────── */}
-      <Dialog open={!!closeTarget} onOpenChange={(open) => { if (!open) { setCloseTarget(null); setCloseModalError(null) } }}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>Encerrar consulta</DialogTitle>
-            <DialogDescription>
-              Confirme o pagamento de <strong>{closeTarget?.patientName}</strong> para encerrar o atendimento e lançar no financeiro.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-4 py-2">
-            {closeModalError && (
-              <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{closeModalError}</span>
-              </div>
-            )}
-
-            <div className="grid gap-2">
-              <Label>Valor cobrado (R$) *</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0,00"
-                value={closeModalCost}
-                onChange={(e) => { setCloseModalCost(e.target.value); setCloseModalError(null) }}
-                autoFocus
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Forma de pagamento *</Label>
-              <Select value={closeModalPayment} onValueChange={(v) => { setCloseModalPayment(v); setCloseModalError(null) }}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>
-                  {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <p className="text-xs text-muted-foreground">
-              O valor será lançado automaticamente no <strong>Financeiro</strong> como pendente de verificação no Fechamento de Caixa.
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setCloseTarget(null); setCloseModalError(null) }}>
-              Cancelar
-            </Button>
-            <Button
-              className="bg-success text-white hover:bg-success/90"
-              onClick={handleCloseFinish}
-              disabled={isClosing}
-            >
-              {isClosing
-                ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Encerrando...</>
-                : <><Check className="mr-2 h-4 w-4" />Encerrar e lançar</>
-              }
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+      {/* Views */}
       {viewMode === "week" && (
         <Card>
           <CardHeader className="pb-3"><CardTitle className="text-base">Visão Semanal</CardTitle></CardHeader>
@@ -910,7 +714,6 @@ export function AgendaView() {
                           <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Paciente</th>
                           <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Profissional</th>
                           <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Status</th>
-                          <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Valor</th>
                           <th className="py-2 px-4 text-right text-xs font-medium text-muted-foreground"></th>
                         </tr>
                       </thead>
@@ -986,3 +789,6 @@ export function AgendaView() {
     </div>
   )
 }
+// Este arquivo é uma extensão do agenda-view.tsx existente
+// Substitua apenas o componente AppointmentRow pelo abaixo
+

@@ -6,42 +6,21 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
 import {
-  DollarSign,
-  Plus,
-  Loader2,
-  AlertCircle,
-  TrendingUp,
-  TrendingDown,
-  Wallet,
-  CreditCard,
-  Banknote,
-  Smartphone,
-  CheckCircle,
-  XCircle,
-  Clock,
+  DollarSign, Plus, Loader2, AlertCircle, TrendingUp, TrendingDown,
+  Wallet, CreditCard, Banknote, Smartphone, CheckCircle, XCircle,
+  Clock, ShieldCheck, AlertTriangle,
 } from "lucide-react"
 import { useFinancialTransactions, usePatients, createFinancialTransaction } from "@/lib/hooks/use-data"
 import { toast } from "sonner"
-import useSWR from "swr"
-
-const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 const PAYMENT_METHODS = [
   { value: "Espécie", label: "Espécie", icon: Banknote },
@@ -64,39 +43,230 @@ function getPaymentIcon(method: string) {
   return <Icon className="h-4 w-4" />
 }
 
-function getStatusBadge(status: string) {
-  switch (status) {
-    case "paid": return <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Pago</Badge>
-    case "pending": return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">Pendente</Badge>
-    case "cancelled": return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">Cancelado</Badge>
-    default: return <Badge variant="secondary">{status}</Badge>
-  }
+function toLocalDateString(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
 }
 
+// ── Hook de atualização de transação (com mutate compartilhado) ───────────
+async function patchTransaction(id: string, body: object) {
+  const res = await fetch(`/api/financial/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || "Erro ao atualizar")
+  }
+  return res.json()
+}
+
+// ── Componente Fechamento de Caixa ────────────────────────────────────────
+function CashClosing({ onMutate }: { onMutate: () => void }) {
+  const [filterDate, setFilterDate] = useState(toLocalDateString(new Date()))
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [isProcessing, setIsProcessing] = useState(false)
+
+  const dateStart = filterDate
+  const dateEnd = filterDate
+
+  const { transactions, isLoading, mutate } = useFinancialTransactions({
+    startDate: dateStart,
+    endDate: dateEnd,
+  })
+
+  // Só mostra transações pendentes de verificação (geradas pelo encerramento de consultas)
+  const pendingVerification = useMemo(() =>
+    (transactions || []).filter(t =>
+      t.status === "pending" && (t as any).verification_status === "pending_verification"
+    ), [transactions])
+
+  const allIds = pendingVerification.map(t => t.id)
+  const allSelected = allIds.length > 0 && allIds.every(id => selected.has(id))
+
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(allIds))
+    }
+  }
+
+  const toggleOne = (id: string) => {
+    const next = new Set(selected)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelected(next)
+  }
+
+  const handleBulkAction = async (action: "confirmed" | "incorrect") => {
+    if (selected.size === 0) { toast.error("Selecione ao menos uma transação."); return }
+    setIsProcessing(true)
+    try {
+      const ids = Array.from(selected)
+      const newStatus = action === "confirmed" ? "paid" : "cancelled"
+      const verificationStatus = action === "confirmed" ? "confirmed" : "incorrect"
+
+      await Promise.all(ids.map(id =>
+        patchTransaction(id, { status: newStatus, verification_status: verificationStatus })
+      ))
+
+      toast.success(
+        action === "confirmed"
+          ? `${ids.length} pagamento(s) confirmado(s)!`
+          : `${ids.length} marcado(s) como Pagamento Incorreto.`
+      )
+      setSelected(new Set())
+      mutate()
+      onMutate() // sincroniza a lista de Transações
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao processar.")
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const totalPending = pendingVerification.reduce((s, t) => s + (t.amount || 0), 0)
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              Fechamento de Caixa
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Verifique e confirme os pagamentos recebidos
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              type="date"
+              value={filterDate}
+              onChange={(e) => { setFilterDate(e.target.value); setSelected(new Set()) }}
+              className="h-8 text-sm w-36"
+            />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : pendingVerification.length === 0 ? (
+          <div className="text-center py-8">
+            <CheckCircle className="h-10 w-10 text-success mx-auto mb-2 opacity-60" />
+            <p className="text-sm text-muted-foreground">
+              Nenhum pagamento pendente de verificação para este dia.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Resumo */}
+            <div className="flex items-center justify-between mb-3 px-1">
+              <span className="text-sm text-muted-foreground">
+                {pendingVerification.length} pendente(s) · Total: <strong>{formatCurrency(totalPending)}</strong>
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline"
+                  className="h-7 text-xs bg-transparent text-green-600 border-green-300 hover:bg-green-50 gap-1"
+                  onClick={() => handleBulkAction("confirmed")}
+                  disabled={selected.size === 0 || isProcessing}>
+                  {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                  Confirmado ({selected.size})
+                </Button>
+                <Button size="sm" variant="outline"
+                  className="h-7 text-xs bg-transparent text-orange-600 border-orange-300 hover:bg-orange-50 gap-1"
+                  onClick={() => handleBulkAction("incorrect")}
+                  disabled={selected.size === 0 || isProcessing}>
+                  <AlertTriangle className="h-3 w-3" />
+                  Incorreto ({selected.size})
+                </Button>
+              </div>
+            </div>
+
+            {/* Tabela */}
+            <div className="rounded-lg border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/50 border-b border-border">
+                    <th className="py-2 px-3 text-left w-8">
+                      <Checkbox
+                        checked={allSelected}
+                        onCheckedChange={toggleAll}
+                        className="h-4 w-4"
+                      />
+                    </th>
+                    <th className="py-2 px-3 text-left text-xs font-medium text-muted-foreground">Paciente</th>
+                    <th className="py-2 px-3 text-left text-xs font-medium text-muted-foreground">Descrição</th>
+                    <th className="py-2 px-3 text-left text-xs font-medium text-muted-foreground">Forma</th>
+                    <th className="py-2 px-3 text-right text-xs font-medium text-muted-foreground">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingVerification.map(t => (
+                    <tr key={t.id}
+                      className={`border-b border-border last:border-0 cursor-pointer transition-colors ${selected.has(t.id) ? "bg-primary/5" : "hover:bg-muted/30"}`}
+                      onClick={() => toggleOne(t.id)}>
+                      <td className="py-3 px-3">
+                        <Checkbox
+                          checked={selected.has(t.id)}
+                          onCheckedChange={() => toggleOne(t.id)}
+                          className="h-4 w-4"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </td>
+                      <td className="py-3 px-3 text-foreground font-medium">
+                        {(t as any).patient?.full_name || "—"}
+                      </td>
+                      <td className="py-3 px-3 text-muted-foreground text-xs">{t.description}</td>
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          {getPaymentIcon(t.payment_method || "")}
+                          {t.payment_method || "—"}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-right font-semibold text-foreground">
+                        {formatCurrency(t.amount || 0)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── View principal de Financeiro ──────────────────────────────────────────
 export function FinancialView() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState("all")
   const [filterMethod, setFilterMethod] = useState("all")
-  const [filterPeriod, setFilterPeriod] = useState("month") // today | week | month | all
+  const [filterPeriod, setFilterPeriod] = useState("month")
 
   const { patients } = usePatients()
 
   const [form, setForm] = useState({
-    patient_id: "",
-    description: "",
-    amount: "",
-    payment_method: "Espécie",
-    status: "paid",
-    type: "income",
+    patient_id: "", description: "", amount: "",
+    payment_method: "Espécie", status: "paid", type: "income",
   })
 
-  // Monta filtro de datas
   const dateFilter = useMemo(() => {
     const now = new Date()
     if (filterPeriod === "today") {
-      const d = now.toISOString().split("T")[0]
+      const d = toLocalDateString(now)
       return { startDate: d, endDate: d }
     }
     if (filterPeriod === "week") {
@@ -105,18 +275,12 @@ export function FinancialView() {
       monday.setDate(now.getDate() - ((day + 6) % 7))
       const sunday = new Date(monday)
       sunday.setDate(monday.getDate() + 6)
-      return {
-        startDate: monday.toISOString().split("T")[0],
-        endDate: sunday.toISOString().split("T")[0],
-      }
+      return { startDate: toLocalDateString(monday), endDate: toLocalDateString(sunday) }
     }
     if (filterPeriod === "month") {
       const start = new Date(now.getFullYear(), now.getMonth(), 1)
       const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-      return {
-        startDate: start.toISOString().split("T")[0],
-        endDate: end.toISOString().split("T")[0],
-      }
+      return { startDate: toLocalDateString(start), endDate: toLocalDateString(end) }
     }
     return {}
   }, [filterPeriod])
@@ -126,21 +290,22 @@ export function FinancialView() {
     ...dateFilter,
   })
 
-  // Filtra por forma de pagamento no cliente (API não tem esse filtro)
   const filteredTransactions = useMemo(() => {
     if (!transactions) return []
-    if (filterMethod === "all") return transactions
-    return transactions.filter(t => t.payment_method === filterMethod)
+    let list = transactions
+    if (filterMethod !== "all") list = list.filter(t => t.payment_method === filterMethod)
+    return list
   }, [transactions, filterMethod])
 
-  // Métricas
   const metrics = useMemo(() => {
     const paid = filteredTransactions.filter(t => t.status === "paid" && t.type === "income")
     const pending = filteredTransactions.filter(t => t.status === "pending" && t.type === "income")
     const cancelled = filteredTransactions.filter(t => t.status === "cancelled")
-    const totalPaid = paid.reduce((sum, t) => sum + (t.amount || 0), 0)
-    const totalPending = pending.reduce((sum, t) => sum + (t.amount || 0), 0)
-    return { totalPaid, totalPending, countPaid: paid.length, countPending: pending.length, countCancelled: cancelled.length }
+    return {
+      totalPaid: paid.reduce((s, t) => s + (t.amount || 0), 0),
+      totalPending: pending.reduce((s, t) => s + (t.amount || 0), 0),
+      countPaid: paid.length, countPending: pending.length, countCancelled: cancelled.length,
+    }
   }, [filteredTransactions])
 
   const resetForm = () => {
@@ -156,7 +321,6 @@ export function FinancialView() {
       setFormError("Informe um valor válido maior que zero.")
       return
     }
-
     setIsCreating(true)
     try {
       await createFinancialTransaction({
@@ -180,21 +344,23 @@ export function FinancialView() {
     }
   }
 
+  // Bug 3 fix: mutate chamado após qualquer atualização de status
   const handleUpdateStatus = async (id: string, status: string) => {
     try {
-      const res = await fetch(`/api/financial/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || "Erro ao atualizar")
-      }
+      await patchTransaction(id, { status })
       toast.success("Status atualizado!")
-      mutate()
+      mutate() // revalida a lista de transações
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao atualizar status")
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "paid": return <Badge className="bg-green-100 text-green-800">Pago</Badge>
+      case "pending": return <Badge className="bg-yellow-100 text-yellow-800">Pendente</Badge>
+      case "cancelled": return <Badge className="bg-red-100 text-red-800">Cancelado</Badge>
+      default: return <Badge variant="secondary">{status}</Badge>
     }
   }
 
@@ -206,13 +372,9 @@ export function FinancialView() {
           <h1 className="text-3xl font-bold text-foreground">Financeiro</h1>
           <p className="text-muted-foreground">Registro de pagamentos e receitas da clínica</p>
         </div>
-
         <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm() }}>
           <DialogTrigger asChild>
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" />
-              Registrar Pagamento
-            </Button>
+            <Button className="gap-2"><Plus className="h-4 w-4" />Registrar Pagamento</Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[480px]">
             <DialogHeader>
@@ -222,55 +384,37 @@ export function FinancialView() {
             <div className="grid gap-4 py-4">
               {formError && (
                 <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>{formError}</span>
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{formError}</span>
                 </div>
               )}
-
               <div className="grid gap-2">
                 <Label>Paciente *</Label>
                 <Select value={form.patient_id} onValueChange={(v) => setForm({ ...form, patient_id: v })}>
                   <SelectTrigger><SelectValue placeholder="Selecione o paciente" /></SelectTrigger>
-                  <SelectContent>
-                    {patients?.map(p => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
-                  </SelectContent>
+                  <SelectContent>{patients?.map(p => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-
               <div className="grid gap-2">
                 <Label>Descrição do Serviço *</Label>
-                <Input
-                  placeholder="Ex: Consulta, Limpeza, Tratamento de canal..."
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                />
+                <Input placeholder="Ex: Consulta, Limpeza..." value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })} />
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label>Valor (R$) *</Label>
-                  <Input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    placeholder="0,00"
-                    value={form.amount}
-                    onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                  />
+                  <Input type="number" min="0.01" step="0.01" placeholder="0,00" value={form.amount}
+                    onChange={(e) => setForm({ ...form, amount: e.target.value })} />
                 </div>
                 <div className="grid gap-2">
                   <Label>Forma de Pagamento</Label>
                   <Select value={form.payment_method} onValueChange={(v) => setForm({ ...form, payment_method: v })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {PAYMENT_METHODS.map(m => (
-                        <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                      ))}
+                      {PAYMENT_METHODS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
-
               <div className="grid gap-2">
                 <Label>Status</Label>
                 <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
@@ -292,6 +436,9 @@ export function FinancialView() {
         </Dialog>
       </div>
 
+      {/* Fechamento de Caixa — sincroniza com mutate da lista de transações */}
+      <CashClosing onMutate={mutate} />
+
       {/* Métricas */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="p-4">
@@ -301,12 +448,9 @@ export function FinancialView() {
               <p className="text-2xl font-bold text-green-600">{formatCurrency(metrics.totalPaid)}</p>
               <p className="text-xs text-muted-foreground mt-1">{metrics.countPaid} transações pagas</p>
             </div>
-            <div className="p-3 bg-green-100 rounded-lg dark:bg-green-900/30">
-              <TrendingUp className="w-5 h-5 text-green-600" />
-            </div>
+            <div className="p-3 bg-green-100 rounded-lg"><TrendingUp className="w-5 h-5 text-green-600" /></div>
           </div>
         </Card>
-
         <Card className="p-4">
           <div className="flex items-start justify-between">
             <div>
@@ -314,12 +458,9 @@ export function FinancialView() {
               <p className="text-2xl font-bold text-yellow-600">{formatCurrency(metrics.totalPending)}</p>
               <p className="text-xs text-muted-foreground mt-1">{metrics.countPending} pendentes</p>
             </div>
-            <div className="p-3 bg-yellow-100 rounded-lg dark:bg-yellow-900/30">
-              <Clock className="w-5 h-5 text-yellow-600" />
-            </div>
+            <div className="p-3 bg-yellow-100 rounded-lg"><Clock className="w-5 h-5 text-yellow-600" /></div>
           </div>
         </Card>
-
         <Card className="p-4">
           <div className="flex items-start justify-between">
             <div>
@@ -327,9 +468,7 @@ export function FinancialView() {
               <p className="text-2xl font-bold text-red-600">{metrics.countCancelled}</p>
               <p className="text-xs text-muted-foreground mt-1">transações canceladas</p>
             </div>
-            <div className="p-3 bg-red-100 rounded-lg dark:bg-red-900/30">
-              <TrendingDown className="w-5 h-5 text-red-600" />
-            </div>
+            <div className="p-3 bg-red-100 rounded-lg"><TrendingDown className="w-5 h-5 text-red-600" /></div>
           </div>
         </Card>
       </div>
@@ -339,12 +478,8 @@ export function FinancialView() {
         <CardContent className="p-4">
           <div className="flex flex-wrap gap-3 items-center">
             <div className="flex gap-1">
-              {[
-                { value: "today", label: "Hoje" },
-                { value: "week", label: "Semana" },
-                { value: "month", label: "Mês" },
-                { value: "all", label: "Tudo" },
-              ].map(p => (
+              {[{ value: "today", label: "Hoje" }, { value: "week", label: "Semana" },
+                { value: "month", label: "Mês" }, { value: "all", label: "Tudo" }].map(p => (
                 <Button key={p.value} size="sm"
                   variant={filterPeriod === p.value ? "default" : "outline"}
                   className={filterPeriod !== p.value ? "bg-transparent" : ""}
@@ -353,7 +488,6 @@ export function FinancialView() {
                 </Button>
               ))}
             </div>
-
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger className="w-36 h-8 text-sm"><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent>
@@ -363,21 +497,18 @@ export function FinancialView() {
                 <SelectItem value="cancelled">Cancelados</SelectItem>
               </SelectContent>
             </Select>
-
             <Select value={filterMethod} onValueChange={setFilterMethod}>
               <SelectTrigger className="w-44 h-8 text-sm"><SelectValue placeholder="Forma" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas as formas</SelectItem>
-                {PAYMENT_METHODS.map(m => (
-                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                ))}
+                {PAYMENT_METHODS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
         </CardContent>
       </Card>
 
-      {/* Lista de transações */}
+      {/* Transações */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle className="text-base">Transações</CardTitle>
@@ -408,18 +539,15 @@ export function FinancialView() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-foreground">
-                      {transaction.patient?.full_name || "Paciente"}
+                      {(transaction as any).patient?.full_name || "Paciente"}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {transaction.description} · {transaction.payment_method}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDate(transaction.created_at)}
-                    </p>
+                    <p className="text-xs text-muted-foreground">{formatDate(transaction.created_at)}</p>
                   </div>
                   {getStatusBadge(transaction.status)}
                 </div>
-
                 <div className="flex items-center gap-3">
                   <span className={`text-base font-semibold ${transaction.status === "cancelled" ? "line-through text-muted-foreground" : "text-foreground"}`}>
                     {formatCurrency(transaction.amount || 0)}
