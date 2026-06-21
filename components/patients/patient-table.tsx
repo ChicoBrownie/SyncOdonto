@@ -8,22 +8,14 @@ import Link from "next/link"
 import { usePatients, createPatient, updatePatient } from "@/lib/hooks/use-data"
 import { useState } from "react"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "sonner"
@@ -81,12 +73,12 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
       cpf: patient.cpf || "",
       address: (patient as any).address || "",
       allergies: patient.allergies || "",
-      pre_existing_conditions: patient.pre_existing_conditions || "",
-      medications: patient.medications || "",
+      pre_existing_conditions: (patient as any).pre_existing_conditions || "",
+      medications: (patient as any).medications || "",
       tags: patientTags,
     })
     setShowMedicalHistory(
-      !!(patient.allergies || patient.pre_existing_conditions || patient.medications)
+      !!(patient.allergies || (patient as any).pre_existing_conditions || (patient as any).medications)
     )
     setIsDialogOpen(true)
   }
@@ -99,40 +91,32 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
   }
 
   const handleSave = async () => {
+    // Apenas nome completo, CPF e data de nascimento são obrigatórios
     if (!form.full_name.trim()) {
-      toast.error("Nome completo e obrigatorio")
-      return
-    }
-    if (!form.email.trim()) {
-      toast.error("Email e obrigatorio")
-      return
-    }
-    if (!form.phone.trim()) {
-      toast.error("Telefone e obrigatorio")
+      toast.error("Nome completo é obrigatório.")
       return
     }
     if (!form.date_of_birth) {
-      toast.error("Data de nascimento e obrigatoria")
+      toast.error("Data de nascimento é obrigatória.")
       return
     }
     if (!form.cpf.trim()) {
-      toast.error("CPF e obrigatorio")
-      return
-    }
-    if (!form.address.trim()) {
-      toast.error("Endereco e obrigatorio")
+      toast.error("CPF é obrigatório.")
       return
     }
 
     setIsSaving(true)
     try {
       const payload: any = { ...form }
+
+      // Converte campos vazios em null (exceto os obrigatórios)
       for (const key of Object.keys(payload)) {
-        if (payload[key] === "" && key !== "full_name") {
-          payload[key] = null
+        if (typeof payload[key] === "string" && payload[key].trim() === "") {
+          if (!["full_name", "cpf", "date_of_birth"].includes(key)) {
+            payload[key] = null
+          }
         }
       }
-      payload.full_name = form.full_name
       payload.tags = form.tags
 
       if (editingPatient) {
@@ -153,14 +137,8 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
     }
   }
 
-  const getInitials = (name: string) => {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase()
-  }
+  const getInitials = (name: string) =>
+    name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()
 
   const calculateAge = (birthDate: string | null) => {
     if (!birthDate) return null
@@ -168,9 +146,7 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
     const birth = new Date(birthDate)
     let age = today.getFullYear() - birth.getFullYear()
     const m = today.getMonth() - birth.getMonth()
-    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
-      age--
-    }
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
     return age
   }
 
@@ -178,41 +154,6 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
     if (!dateString) return "-"
     return new Date(dateString).toLocaleDateString("pt-BR")
   }
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center">
-          <p className="text-muted-foreground">Erro ao carregar pacientes. Faca login para continuar.</p>
-          <Link href="/auth/login">
-            <Button className="mt-4">Fazer Login</Button>
-          </Link>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  // Filter by activeTab using tags
-  const allPatients = patients || []
-  const filteredPatients = activeTab === "all"
-    ? allPatients
-    : activeTab === "treatment"
-      ? allPatients.filter(p => Array.isArray((p as any).tags) && (p as any).tags.includes("Em Tratamento"))
-      : activeTab === "attention"
-        ? allPatients.filter(p => Array.isArray((p as any).tags) && (p as any).tags.includes("Atenção"))
-        : activeTab === "high-risk"
-          ? allPatients.filter(p => Array.isArray((p as any).tags) && (p as any).tags.includes("Alto Risco"))
-          : allPatients
 
   const renderTags = (patient: Patient) => {
     const tags = Array.isArray((patient as any).tags) ? (patient as any).tags as string[] : []
@@ -231,81 +172,94 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
     )
   }
 
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <p className="text-muted-foreground">Erro ao carregar pacientes. Faça login para continuar.</p>
+          <Link href="/auth/login"><Button className="mt-4">Fazer Login</Button></Link>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const allPatients = patients || []
+  const filteredPatients = activeTab === "all" ? allPatients
+    : activeTab === "treatment" ? allPatients.filter(p => Array.isArray((p as any).tags) && (p as any).tags.includes("Em Tratamento"))
+    : activeTab === "attention" ? allPatients.filter(p => Array.isArray((p as any).tags) && (p as any).tags.includes("Atenção"))
+    : activeTab === "high-risk" ? allPatients.filter(p => Array.isArray((p as any).tags) && (p as any).tags.includes("Alto Risco"))
+    : allPatients
+
   return (
     <Card>
       <CardContent className="p-0">
-        {/* Header */}
+        {/* Cabeçalho */}
         <div className="flex justify-end p-4 border-b border-border">
           <Button className="gap-2" onClick={openCreateDialog}>
-            <Plus className="h-4 w-4" />
-            Novo Paciente
+            <Plus className="h-4 w-4" />Novo Paciente
           </Button>
         </div>
 
-        {/* Create/Edit Dialog */}
+        {/* Modal cadastro/edição */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingPatient ? "Editar Paciente" : "Cadastrar Novo Paciente"}</DialogTitle>
               <DialogDescription>
-                {editingPatient
-                  ? "Atualize os dados do paciente. Campos com * sao obrigatorios."
-                  : "Preencha os dados do paciente. Campos com * sao obrigatorios."}
+                Campos com * são obrigatórios. Os demais são opcionais.
               </DialogDescription>
             </DialogHeader>
+
             <div className="grid gap-4 py-4">
-              {/* Dados Pessoais */}
+              {/* Nome */}
               <div className="grid gap-2">
                 <Label htmlFor="full_name">Nome Completo *</Label>
-                <Input
-                  id="full_name"
-                  value={form.full_name}
+                <Input id="full_name" value={form.full_name}
                   onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-                  placeholder="Ex: Maria Silva"
-                />
+                  placeholder="Ex: Maria Silva" />
               </div>
+
+              {/* Email e Telefone — opcionais */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                <Label htmlFor="email">Email *</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={form.email}
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" type="email" value={form.email}
                     onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    placeholder="email@exemplo.com"
-                  />
+                    placeholder="email@exemplo.com" />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="phone">Telefone *</Label>
-                  <Input
-                    id="phone"
-                    value={form.phone}
+                  <Label htmlFor="phone">Telefone</Label>
+                  <Input id="phone" value={form.phone}
                     onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    placeholder="(11) 99999-9999"
-                  />
+                    placeholder="(89) 99999-9999" />
+                  <p className="text-xs text-muted-foreground -mt-1">
+                    Necessário para notificações WhatsApp
+                  </p>
                 </div>
               </div>
+
+              {/* Data nascimento e gênero */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="date_of_birth">Data de Nascimento *</Label>
-                  <Input
-                    id="date_of_birth"
-                    type="date"
-                    value={form.date_of_birth}
-                    onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
-                  />
+                  <Input id="date_of_birth" type="date" value={form.date_of_birth}
+                    onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })} />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="gender">Genero *</Label>
-                  <Select
-                    value={form.gender}
-                    onValueChange={(value: "Masculino" | "Feminino" | "Outro") =>
-                      setForm({ ...form, gender: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                  <Label htmlFor="gender">Gênero</Label>
+                  <Select value={form.gender}
+                    onValueChange={(v: "Masculino" | "Feminino" | "Outro") => setForm({ ...form, gender: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Masculino">Masculino</SelectItem>
                       <SelectItem value="Feminino">Feminino</SelectItem>
@@ -314,125 +268,88 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
                   </Select>
                 </div>
               </div>
+
+              {/* CPF */}
               <div className="grid gap-2">
                 <Label htmlFor="cpf">CPF *</Label>
-                <Input
-                  id="cpf"
-                  value={form.cpf}
+                <Input id="cpf" value={form.cpf}
                   onChange={(e) => setForm({ ...form, cpf: e.target.value })}
-                  placeholder="000.000.000-00"
-                />
+                  placeholder="000.000.000-00" />
               </div>
 
-              {/* Endereco */}
+              {/* Endereço — opcional */}
               <div className="grid gap-2">
                 <Label htmlFor="address" className="flex items-center gap-1.5">
                   <MapPin className="h-3.5 w-3.5" />
-                  Endereco *
+                  Endereço
                 </Label>
-                <Textarea
-                  id="address"
-                  value={form.address}
+                <Textarea id="address" value={form.address}
                   onChange={(e) => setForm({ ...form, address: e.target.value })}
-                  placeholder="Rua, numero, bairro, cidade - UF, CEP"
-                  rows={2}
-                />
+                  placeholder="Rua, número, bairro, cidade - UF, CEP"
+                  rows={2} />
               </div>
 
-              {/* Tags / Classificacao */}
+              {/* Tags */}
               <div className="grid gap-2">
                 <Label className="flex items-center gap-1.5">
                   <Tag className="h-3.5 w-3.5" />
-                  Classificacao do Paciente
+                  Classificação do Paciente
                 </Label>
-                <p className="text-xs text-muted-foreground">Marque as classificacoes que se aplicam a este paciente.</p>
+                <p className="text-xs text-muted-foreground">Marque as classificações que se aplicam.</p>
                 <div className="flex flex-col gap-2 mt-1">
                   {AVAILABLE_TAGS.map(tag => (
                     <label key={tag.value} className="flex items-center gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={form.tags.includes(tag.value)}
-                        onCheckedChange={() => toggleTag(tag.value)}
-                      />
-                      <Badge variant="secondary" className={`${tag.color} pointer-events-none`}>
-                        {tag.value}
-                      </Badge>
+                      <Checkbox checked={form.tags.includes(tag.value)} onCheckedChange={() => toggleTag(tag.value)} />
+                      <Badge variant="secondary" className={`${tag.color} pointer-events-none`}>{tag.value}</Badge>
                     </label>
                   ))}
                 </div>
               </div>
 
-              {/* Historico Medico - Colapsavel */}
+              {/* Histórico Médico colapsável */}
               <div className="border border-border rounded-lg">
-                <button
-                  type="button"
+                <button type="button"
                   className="flex items-center justify-between w-full px-4 py-3 text-sm font-medium text-foreground hover:bg-muted/50 rounded-lg transition-colors"
-                  onClick={() => setShowMedicalHistory(!showMedicalHistory)}
-                >
-                  <span>Historico Medico (opcional)</span>
-                  {showMedicalHistory ? (
-                    <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  )}
+                  onClick={() => setShowMedicalHistory(!showMedicalHistory)}>
+                  <span>Histórico Médico (opcional)</span>
+                  {showMedicalHistory
+                    ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                    : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                 </button>
                 {showMedicalHistory && (
                   <div className="px-4 pb-4 grid gap-4 border-t border-border pt-4">
                     <div className="grid gap-2">
                       <Label htmlFor="allergies">Alergias</Label>
-                      <Textarea
-                        id="allergies"
-                        value={form.allergies}
+                      <Textarea id="allergies" value={form.allergies}
                         onChange={(e) => setForm({ ...form, allergies: e.target.value })}
-                        placeholder="Ex: Penicilina, Latex, Anestesico local..."
-                        rows={2}
-                      />
+                        placeholder="Ex: Penicilina, Látex, Anestésico local..." rows={2} />
                     </div>
                     <div className="grid gap-2">
-                      <Label htmlFor="pre_existing_conditions">Condicoes Pre-existentes</Label>
-                      <Textarea
-                        id="pre_existing_conditions"
-                        value={form.pre_existing_conditions}
+                      <Label htmlFor="pre_existing_conditions">Condições Pré-existentes</Label>
+                      <Textarea id="pre_existing_conditions" value={form.pre_existing_conditions}
                         onChange={(e) => setForm({ ...form, pre_existing_conditions: e.target.value })}
-                        placeholder="Ex: Diabetes, Hipertensao, Cardiopatia..."
-                        rows={2}
-                      />
+                        placeholder="Ex: Diabetes, Hipertensão, Cardiopatia..." rows={2} />
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor="medications">Medicamentos em Uso</Label>
-                      <Textarea
-                        id="medications"
-                        value={form.medications}
+                      <Textarea id="medications" value={form.medications}
                         onChange={(e) => setForm({ ...form, medications: e.target.value })}
-                        placeholder="Ex: Insulina, Losartana 50mg..."
-                        rows={2}
-                      />
+                        placeholder="Ex: Insulina, Losartana 50mg..." rows={2} />
                     </div>
                   </div>
                 )}
               </div>
             </div>
+
             <DialogFooter>
-              <Button
-                variant="outline"
-                className="bg-transparent"
-                onClick={() => {
-                  setIsDialogOpen(false)
-                  setEditingPatient(null)
-                }}
-              >
+              <Button variant="outline" className="bg-transparent"
+                onClick={() => { setIsDialogOpen(false); setEditingPatient(null) }}>
                 Cancelar
               </Button>
               <Button onClick={handleSave} disabled={isSaving}>
-                {isSaving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Salvando...
-                  </>
-                ) : editingPatient ? (
-                  "Atualizar"
-                ) : (
-                  "Cadastrar"
-                )}
+                {isSaving
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</>
+                  : editingPatient ? "Atualizar" : "Cadastrar"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -443,13 +360,13 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
             <p className="text-muted-foreground">Nenhum paciente encontrado.</p>
             <p className="text-sm text-muted-foreground mt-2">
               {activeTab !== "all"
-                ? "Nenhum paciente com esta classificacao. Edite um paciente para adicionar tags."
+                ? "Nenhum paciente com esta classificação."
                 : "Clique em \"Novo Paciente\" para cadastrar o primeiro paciente."}
             </p>
           </div>
         ) : (
           <>
-            {/* Desktop Table */}
+            {/* Tabela desktop */}
             <div className="hidden overflow-x-auto lg:block">
               <table className="w-full">
                 <thead className="border-b border-border bg-muted/30">
@@ -457,9 +374,9 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
                     <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Paciente</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Idade</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Telefone</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Classificacao</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Classificação</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">Cadastrado em</th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-foreground">Acoes</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-foreground">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -472,9 +389,7 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
                           </div>
                           <div>
                             <span className="font-medium text-foreground">{patient.full_name}</span>
-                            {patient.email && (
-                              <p className="text-xs text-muted-foreground">{patient.email}</p>
-                            )}
+                            {patient.email && <p className="text-xs text-muted-foreground">{patient.email}</p>}
                           </div>
                         </div>
                       </td>
@@ -493,17 +408,12 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
                       </td>
                       <td className="px-4 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="bg-transparent gap-1.5"
-                            onClick={() => openEditDialog(patient)}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                            Editar
+                          <Button size="sm" variant="outline" className="bg-transparent gap-1.5"
+                            onClick={() => openEditDialog(patient)}>
+                            <Pencil className="h-3.5 w-3.5" />Editar
                           </Button>
                           <Link href={`/prontuario/${patient.id}`}>
-                            <Button size="sm">Prontuario</Button>
+                            <Button size="sm">Prontuário</Button>
                           </Link>
                         </div>
                       </td>
@@ -513,7 +423,7 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
               </table>
             </div>
 
-            {/* Mobile Cards */}
+            {/* Cards mobile */}
             <div className="space-y-3 p-4 lg:hidden">
               {filteredPatients.map((patient) => (
                 <Card key={patient.id}>
@@ -525,27 +435,20 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
                       <div className="flex-1 min-w-0">
                         <h3 className="font-semibold text-foreground">{patient.full_name}</h3>
                         <p className="text-sm text-muted-foreground">
-                          {calculateAge(patient.date_of_birth)
-                            ? `${calculateAge(patient.date_of_birth)} anos`
-                            : "Idade nao informada"}
+                          {calculateAge(patient.date_of_birth) ? `${calculateAge(patient.date_of_birth)} anos` : "Idade não informada"}
                         </p>
                         {renderTags(patient)}
                         <div className="mt-3 flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Calendar className="h-3 w-3" />
-                            {formatDate(patient.created_at)}
+                            <Calendar className="h-3 w-3" />{formatDate(patient.created_at)}
                           </div>
                           <div className="flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="bg-transparent"
-                              onClick={() => openEditDialog(patient)}
-                            >
+                            <Button size="sm" variant="outline" className="bg-transparent"
+                              onClick={() => openEditDialog(patient)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
                             <Link href={`/prontuario/${patient.id}`}>
-                              <Button size="sm">Prontuario</Button>
+                              <Button size="sm">Prontuário</Button>
                             </Link>
                           </div>
                         </div>
@@ -558,13 +461,15 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
           </>
         )}
 
-        {/* Footer */}
         {filteredPatients.length > 0 && (
           <div className="flex items-center justify-between border-t border-border px-4 py-4">
-            <p className="text-sm text-muted-foreground">Mostrando {filteredPatients.length} paciente{filteredPatients.length !== 1 ? "s" : ""}</p>
+            <p className="text-sm text-muted-foreground">
+              Mostrando {filteredPatients.length} paciente{filteredPatients.length !== 1 ? "s" : ""}
+            </p>
           </div>
         )}
       </CardContent>
     </Card>
   )
 }
+
