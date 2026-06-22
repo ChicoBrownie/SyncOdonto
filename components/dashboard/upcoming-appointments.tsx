@@ -72,9 +72,19 @@ export function UpcomingAppointments() {
                   </p>
                 </div>
               </div>
-              <Link href={`/prontuario/${appointment.patient_id}`}>
-                <Button size="sm">Iniciar</Button>
-              </Link>
+              {appointment.status === "Concluída" ? (
+                <span className="text-xs text-muted-foreground px-3 py-1.5 rounded-md bg-muted">
+                  Encerrado
+                </span>
+              ) : appointment.status === "Cancelada" ? (
+                <span className="text-xs text-red-600 px-3 py-1.5 rounded-md bg-red-50">
+                  Cancelada
+                </span>
+              ) : (
+                <Link href={`/prontuario/${appointment.patient_id}`}>
+                  <Button size="sm">Iniciar</Button>
+                </Link>
+              )}
             </div>
           ))
         )}

@@ -1,14 +1,5 @@
-import { AppLayout } from "@/components/app-layout"
-import { FinancialView } from "@/components/reports/financial-view"
-import { CashClosing } from "@/components/financeiro/cash-closing"
+import { redirect } from "next/navigation"
 
 export default function FinanceiroPage() {
-  return (
-    <AppLayout>
-      <div className="space-y-6">
-        <CashClosing />
-        <FinancialView />
-      </div>
-    </AppLayout>
-  )
+  redirect("/gestao-clinica")
 }

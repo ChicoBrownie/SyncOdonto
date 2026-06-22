@@ -54,13 +54,10 @@ function getAppointmentTimeStatus(
   const now = new Date()
   const todayString = toLocalDateString(now)
   if (appointmentDate !== todayString) {
-    if (appointmentDate < todayString) return "missed"
     return "ok"
   }
   const nowMinutes = now.getHours() * 60 + now.getMinutes()
   const apptMinutes = timeToMinutes(appointmentTime)
-  const closingMinutes = closingHour * 60
-  if (nowMinutes >= closingMinutes) return "missed"
   if (nowMinutes >= apptMinutes + 15) return "late"
   return "ok"
 }
@@ -406,9 +403,6 @@ export function AgendaView() {
       ? getAppointmentTimeStatus(appointment.date, appointment.time, closingHour)
       : "ok"
 
-    // Auto-falta
-    if (timeStatus === "missed" && isActiveStatus) handleAutoMissed(appointment.id)
-
     // Auto-atrasado
     const currentStatus = timeStatus === "late" && appointment.status !== "Atrasado" && isActiveStatus
       ? "Atrasado"
@@ -418,17 +412,11 @@ export function AgendaView() {
       handleUpdateStatus(appointment.id, "Atrasado")
     }
 
-    const rowBg = timeStatus === "missed"
-      ? "bg-orange-50 dark:bg-orange-950/20"
-      : timeStatus === "late" || currentStatus === "Atrasado"
+    const rowBg = timeStatus === "late" || currentStatus === "Atrasado"
       ? "bg-yellow-50 dark:bg-yellow-950/20"
       : ""
 
-    const canStart = appointment.status !== "Concluída" &&
-      appointment.status !== "Cancelada" &&
-      appointment.status !== "Falta" &&
-      appointment.status !== "Em Andamento" &&
-      timeStatus !== "missed"
+    const canStart = !["Concluída","Cancelada","Falta","Em Andamento"].includes(appointment.status)
 
     const canCancel = appointment.status !== "Concluída" &&
       appointment.status !== "Cancelada" &&
@@ -762,25 +750,6 @@ export function AgendaView() {
                     <Badge className="bg-red-100 text-red-700">{cancelledCount}</Badge>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Sugestões Inteligentes</CardTitle>
-                <p className="text-xs text-muted-foreground">Horários otimizados para agendamento</p>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {[{ time: "11:30", label: "Horário livre - Alta demanda" }, { time: "13:00", label: "Horário otimizado para retornos" }].map(({ time, label }) => (
-                  <div key={time} className="rounded-lg bg-purple-600/10 border border-purple-600/20 p-3">
-                    <p className="text-sm font-medium text-foreground">{time}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{label}</p>
-                    <Button variant="outline" size="sm" className="mt-2 h-7 text-xs bg-transparent" disabled={isPastDate}
-                      onClick={() => { setNewAppointment({ ...newAppointment, time }); setIsDialogOpen(true) }}>
-                      Agendar
-                    </Button>
-                  </div>
-                ))}
               </CardContent>
             </Card>
           </div>

@@ -21,7 +21,11 @@ export async function GET(request: Request) {
 
   if (type && type !== "all") query = query.eq("type", type)
   if (status && status !== "all") query = query.eq("status", status)
-  if (startDate && endDate) query = query.gte("created_at", startDate).lte("created_at", endDate)
+  if (startDate && endDate) {
+    query = query
+      .gte("created_at", `${startDate}T00:00:00.000Z`)
+      .lt("created_at", `${endDate}T23:59:59.999Z`)
+  }
   if (patientId) query = query.eq("patient_id", patientId)
 
   const { data, error } = await query
