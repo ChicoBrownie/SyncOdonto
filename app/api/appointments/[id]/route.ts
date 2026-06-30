@@ -1,5 +1,6 @@
 import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
 import { NextResponse } from "next/server"
+import { notificarConfirmacaoConsulta } from "@/lib/whatsapp"
 
 export async function GET(
   request: Request,
@@ -32,6 +33,14 @@ export async function PATCH(
 
   const body = await request.json()
 
+  // Busca o status anterior para detectar transição para "Confirmada"
+  const { data: anterior } = await supabase
+    .from("appointments")
+    .select("status")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .single()
+
   const { data, error } = await supabase
     .from("appointments")
     .update(body)
@@ -42,8 +51,7 @@ export async function PATCH(
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Se o agendamento foi cancelado ou marcado como Falta,
-  // cancela automaticamente a transação financeira pendente vinculada
+  // ── Cancelamento: cancela transação financeira vinculada ─────────────────
   if (body.status === "Cancelada" || body.status === "Falta") {
     await supabase
       .from("financial_transactions")
@@ -51,9 +59,38 @@ export async function PATCH(
       .eq("user_id", user.id)
       .eq("status", "pending")
       .or(`description.ilike.%${data.procedure_type}%,patient_id.eq.${data.patient_id}`)
-      // Restringe ao mesmo dia para evitar cancelar transações erradas
       .gte("created_at", data.date + "T00:00:00")
       .lte("created_at", data.date + "T23:59:59")
+  }
+
+  // ── Confirmação: dispara notificação WhatsApp ─────────────────────────────
+  if (body.status === "Confirmada" && anterior?.status !== "Confirmada") {
+    try {
+      // Busca telefone do profissional na tabela clinic_staff
+      let telefoneProfissional: string | null = null
+      if (data.doctor_name) {
+        const { data: staffData } = await supabase
+          .from("clinic_staff")
+          .select("phone")
+          .eq("user_id", user.id)
+          .ilike("full_name", data.doctor_name)
+          .single()
+        telefoneProfissional = staffData?.phone ?? null
+      }
+
+      await notificarConfirmacaoConsulta({
+        telefonePaciente: data.patient?.phone ?? null,
+        nomePaciente: data.patient?.full_name ?? "Paciente",
+        telefoneProfissional,
+        nomeProfissional: data.doctor_name ?? "Profissional",
+        dataConsulta: data.date,
+        horarioConsulta: data.time,
+        procedimento: data.procedure_type,
+      })
+    } catch (errNotif) {
+      // Não bloqueia a resposta se a notificação falhar
+      console.error("[WhatsApp] Erro ao enviar notificação:", errNotif)
+    }
   }
 
   return NextResponse.json({ data })

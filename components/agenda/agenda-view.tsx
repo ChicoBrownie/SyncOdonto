@@ -54,13 +54,10 @@ function getAppointmentTimeStatus(
   const now = new Date()
   const todayString = toLocalDateString(now)
   if (appointmentDate !== todayString) {
-    if (appointmentDate < todayString) return "missed"
     return "ok"
   }
   const nowMinutes = now.getHours() * 60 + now.getMinutes()
   const apptMinutes = timeToMinutes(appointmentTime)
-  const closingMinutes = closingHour * 60
-  if (nowMinutes >= closingMinutes) return "missed"
   if (nowMinutes >= apptMinutes + 15) return "late"
   return "ok"
 }
@@ -298,7 +295,7 @@ export function AgendaView() {
     return <Badge className={map[status] || ""}>{status}</Badge>
   }
 
-  const confirmedCount = appointments?.filter(a => a.status === "Confirmada").length || 0
+  const confirmedCount = appointments?.filter(a => a.status === "Confirmada" || a.status === "Concluída" || a.status === "Em Andamento").length || 0
   const pendingCount = appointments?.filter(a => a.status === "Pendente" || a.status === "Atrasado").length || 0
   const cancelledCount = appointments?.filter(a => a.status === "Cancelada" || a.status === "Falta").length || 0
   const occupancyRate = appointments ? Math.round((appointments.length / 8) * 100) : 0
@@ -406,9 +403,6 @@ export function AgendaView() {
       ? getAppointmentTimeStatus(appointment.date, appointment.time, closingHour)
       : "ok"
 
-    // Auto-falta
-    if (timeStatus === "missed" && isActiveStatus) handleAutoMissed(appointment.id)
-
     // Auto-atrasado
     const currentStatus = timeStatus === "late" && appointment.status !== "Atrasado" && isActiveStatus
       ? "Atrasado"
@@ -418,17 +412,11 @@ export function AgendaView() {
       handleUpdateStatus(appointment.id, "Atrasado")
     }
 
-    const rowBg = timeStatus === "missed"
-      ? "bg-orange-50 dark:bg-orange-950/20"
-      : timeStatus === "late" || currentStatus === "Atrasado"
+    const rowBg = timeStatus === "late" || currentStatus === "Atrasado"
       ? "bg-yellow-50 dark:bg-yellow-950/20"
       : ""
 
-    const canStart = appointment.status !== "Concluída" &&
-      appointment.status !== "Cancelada" &&
-      appointment.status !== "Falta" &&
-      appointment.status !== "Em Andamento" &&
-      timeStatus !== "missed"
+    const canStart = !["Concluída","Cancelada","Falta","Em Andamento"].includes(appointment.status)
 
     const canCancel = appointment.status !== "Concluída" &&
       appointment.status !== "Cancelada" &&
@@ -453,30 +441,34 @@ export function AgendaView() {
         <td className="py-3 px-4 text-sm text-muted-foreground">
           {appointment.doctor_name ? `Dr(a). ${appointment.doctor_name}` : "—"}
         </td>
-        {/* Status dropdown */}
+        {/* Status — travado após encerramento */}
         <td className="py-3 px-4">
-          <Select
-            value={appointment.status}
-            onValueChange={(val) => {
-              if (val === "Cancelada") {
-                openCancelModal(appointment.id, appointment.patient?.full_name || "Paciente")
-              } else {
-                handleUpdateStatus(appointment.id, val)
-              }
-            }}
-          >
-            <SelectTrigger className="h-7 w-36 text-xs border-0 bg-transparent p-0 shadow-none focus:ring-0">
-              <SelectValue>{getStatusBadge(appointment.status)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_OPTIONS.filter(o => {
-                if (o.value === "Cancelada") return canCancel
-                return true
-              }).map(o => (
-                <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {["Concluída", "Cancelada", "Falta"].includes(appointment.status) ? (
+            <div className="py-1">{getStatusBadge(appointment.status)}</div>
+          ) : (
+            <Select
+              value={appointment.status}
+              onValueChange={(val) => {
+                if (val === "Cancelada") {
+                  openCancelModal(appointment.id, appointment.patient?.full_name || "Paciente")
+                } else {
+                  handleUpdateStatus(appointment.id, val)
+                }
+              }}
+            >
+              <SelectTrigger className="h-7 w-36 text-xs border-0 bg-transparent p-0 shadow-none focus:ring-0">
+                <SelectValue>{getStatusBadge(appointment.status)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_OPTIONS.filter(o => {
+                  if (o.value === "Cancelada") return canCancel
+                  return true
+                }).map(o => (
+                  <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </td>
         {/* Ação */}
         <td className="py-3 px-4 text-right">
@@ -760,28 +752,12 @@ export function AgendaView() {
                 </div>
               </CardContent>
             </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Sugestões Inteligentes</CardTitle>
-                <p className="text-xs text-muted-foreground">Horários otimizados para agendamento</p>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {[{ time: "11:30", label: "Horário livre - Alta demanda" }, { time: "13:00", label: "Horário otimizado para retornos" }].map(({ time, label }) => (
-                  <div key={time} className="rounded-lg bg-purple-600/10 border border-purple-600/20 p-3">
-                    <p className="text-sm font-medium text-foreground">{time}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{label}</p>
-                    <Button variant="outline" size="sm" className="mt-2 h-7 text-xs bg-transparent" disabled={isPastDate}
-                      onClick={() => { setNewAppointment({ ...newAppointment, time }); setIsDialogOpen(true) }}>
-                      Agendar
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
           </div>
         </div>
       )}
     </div>
   )
 }
+// Este arquivo é uma extensão do agenda-view.tsx existente
+// Substitua apenas o componente AppointmentRow pelo abaixo
+

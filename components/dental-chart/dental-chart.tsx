@@ -4,16 +4,16 @@ import { cn } from "@/lib/utils"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 
-export type ToothCondition = "healthy" | "restored" | "cavity" | "canal" | "missing" | "implant" | "none"
+export type ToothCondition = "Saudável" | "Restaurado" | "Atenção/Cárie" | "Tratamento Canal" | "Sem Registros" | "Ausente" | "Implante"
 
 export const CONDITIONS: { value: ToothCondition; label: string; color: string; dotColor: string }[] = [
-  { value: "none", label: "Sem Registro", color: "bg-muted hover:bg-muted/80 border-border", dotColor: "bg-muted-foreground" },
-  { value: "healthy", label: "Saudavel", color: "bg-success hover:bg-success/80 border-success", dotColor: "bg-success" },
-  { value: "restored", label: "Restaurado", color: "bg-primary hover:bg-primary/80 border-primary", dotColor: "bg-primary" },
-  { value: "cavity", label: "Carie", color: "bg-warning hover:bg-warning/80 border-warning", dotColor: "bg-warning" },
-  { value: "canal", label: "Tratamento de Canal", color: "bg-danger hover:bg-danger/80 border-danger", dotColor: "bg-danger" },
-  { value: "missing", label: "Ausente", color: "bg-zinc-400 hover:bg-zinc-400/80 border-zinc-400", dotColor: "bg-zinc-400" },
-  { value: "implant", label: "Implante", color: "bg-violet-500 hover:bg-violet-400/80 border-violet-500", dotColor: "bg-violet-500" },
+  { value: "Sem Registros", label: "Sem Registro", color: "bg-muted hover:bg-muted/80 border-border", dotColor: "bg-muted-foreground" },
+  { value: "Saudável", label: "Saudavel", color: "bg-success hover:bg-success/80 border-success", dotColor: "bg-success" },
+  { value: "Restaurado", label: "Restaurado", color: "bg-primary hover:bg-primary/80 border-primary", dotColor: "bg-primary" },
+  { value: "Atenção/Cárie", label: "Carie", color: "bg-warning hover:bg-warning/80 border-warning", dotColor: "bg-warning" },
+  { value: "Tratamento Canal", label: "Tratamento de Canal", color: "bg-danger hover:bg-danger/80 border-danger", dotColor: "bg-danger" },
+  { value: "Ausente", label: "Ausente", color: "bg-zinc-400 hover:bg-zinc-400/80 border-zinc-400", dotColor: "bg-zinc-400" },
+  { value: "Implante", label: "Implante", color: "bg-violet-500 hover:bg-violet-400/80 border-violet-500", dotColor: "bg-violet-500" },
 ]
 
 interface DentalChartProps {

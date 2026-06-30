@@ -1,5 +1,8 @@
 "use client"
 
+import { FinancialView } from "@/components/reports/financial-view"
+import { useClinicSettings, saveClinicSettings } from "@/lib/hooks/use-data"
+import { useEffect } from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -60,6 +63,84 @@ export function ClinicManagementView() {
     phone: "",
   }
   const [form, setForm] = useState(emptyForm)
+
+  const { settings, isLoading: isLoadingSettings, mutate: mutateSettings } = useClinicSettings()
+const [isSavingSettings, setIsSavingSettings] = useState(false)
+
+const DIAS_SEMANA = [
+  { key: "monday", label: "Segunda-feira" },
+  { key: "tuesday", label: "Terça-feira" },
+  { key: "wednesday", label: "Quarta-feira" },
+  { key: "thursday", label: "Quinta-feira" },
+  { key: "friday", label: "Sexta-feira" },
+  { key: "saturday", label: "Sábado" },
+  { key: "sunday", label: "Domingo" },
+]
+
+const emptySettingsForm = {
+  clinic_name: "",
+  cnpj: "",
+  phone: "",
+  email: "",
+  address: "",
+  hours: DIAS_SEMANA.reduce((acc, d) => {
+    acc[d.key] = { start: "08:00", end: d.key === "saturday" ? "12:00" : "18:00", closed: d.key === "sunday" }
+    return acc
+  }, {} as Record<string, { start: string; end: string; closed: boolean }>),
+}
+
+const [settingsForm, setSettingsForm] = useState(emptySettingsForm)
+
+useEffect(() => {
+  if (settings) {
+    setSettingsForm({
+      clinic_name: settings.clinic_name || "",
+      cnpj: (settings.settings as any)?.cnpj || "",
+      phone: settings.phone || "",
+      email: settings.email || "",
+      address: settings.address || "",
+      hours: (settings.settings as any)?.hours || emptySettingsForm.hours,
+    })
+  }
+}, [settings])
+
+const updateDayHours = (dayKey: string, field: "start" | "end" | "closed", value: string | boolean) => {
+  setSettingsForm(prev => ({
+    ...prev,
+    hours: {
+      ...prev.hours,
+      [dayKey]: { ...prev.hours[dayKey], [field]: value },
+    },
+  }))
+}
+
+const handleSaveSettings = async () => {
+  if (!settingsForm.clinic_name.trim()) {
+    toast.error("Nome da clínica é obrigatório.")
+    return
+  }
+  setIsSavingSettings(true)
+  try {
+    await saveClinicSettings({
+      clinic_name: settingsForm.clinic_name.trim(),
+      phone: settingsForm.phone || null,
+      email: settingsForm.email || null,
+      address: settingsForm.address || null,
+      working_hours: { start: "08:00", end: "18:00" },
+      settings: {
+        cnpj: settingsForm.cnpj,
+        hours: settingsForm.hours,
+      },
+    } as any)
+    toast.success("Configurações salvas com sucesso!")
+    mutateSettings()
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : "Erro ao salvar configurações")
+  } finally {
+    setIsSavingSettings(false)
+  }
+}
+
 
   const openCreate = () => {
     setEditingMember(null)
@@ -394,13 +475,8 @@ export function ClinicManagementView() {
       )}
 
       {activeTab === "financeiro" && (
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold text-foreground">Visao Financeira</h2>
-          <Card className="p-6 border-border">
-            <p className="text-muted-foreground text-center py-4">
-              Modulo financeiro em desenvolvimento. Os dados serao sincronizados com os tratamentos e consultas.
-            </p>
-          </Card>
+        <div className="-m-4 md:-m-6 lg:-m-8">
+          <FinancialView />
         </div>
       )}
 
@@ -408,45 +484,115 @@ export function ClinicManagementView() {
         <div className="space-y-4">
           <h2 className="text-xl font-semibold text-foreground">Configuracoes da Clinica</h2>
 
-          <Card className="p-6 border-border">
-            <h3 className="font-semibold text-foreground mb-4">Informacoes Basicas</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-foreground">Nome da Clinica</label>
-                <Input className="mt-1" defaultValue="SyncOdonto Clinica" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground">CNPJ</label>
-                <Input className="mt-1" placeholder="00.000.000/0001-00" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground">Telefone</label>
-                <Input className="mt-1" placeholder="(11) 98765-4321" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground">Endereco</label>
-                <Input className="mt-1" placeholder="Rua das Flores, 123 - Sao Paulo, SP" />
-              </div>
+          {isLoadingSettings ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          </Card>
-
-          <Card className="p-6 border-border">
-            <h3 className="font-semibold text-foreground mb-4">Horario de Funcionamento</h3>
-            <div className="space-y-3">
-              {["Segunda-feira", "Terca-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira"].map((dia) => (
-                <div key={dia} className="flex items-center justify-between">
-                  <span className="text-foreground">{dia}</span>
-                  <span className="text-muted-foreground">08:00 - 18:00</span>
+          ) : (
+            <>
+              <Card className="p-6 border-border">
+                <h3 className="font-semibold text-foreground mb-4">Informacoes Basicas</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Nome da Clinica *</label>
+                    <Input
+                      className="mt-1"
+                      value={settingsForm.clinic_name}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, clinic_name: e.target.value })}
+                      placeholder="SyncOdonto Clinica"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-foreground">CNPJ</label>
+                    <Input
+                      className="mt-1"
+                      value={settingsForm.cnpj}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, cnpj: e.target.value })}
+                      placeholder="00.000.000/0001-00"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Email</label>
+                    <Input
+                      type="email"
+                      className="mt-1"
+                      value={settingsForm.email}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, email: e.target.value })}
+                      placeholder="contato@clinica.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Telefone</label>
+                    <Input
+                      className="mt-1"
+                      value={settingsForm.phone}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, phone: e.target.value })}
+                      placeholder="(11) 98765-4321"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Endereco</label>
+                    <Input
+                      className="mt-1"
+                      value={settingsForm.address}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, address: e.target.value })}
+                      placeholder="Rua das Flores, 123 - Sao Paulo, SP"
+                    />
+                  </div>
                 </div>
-              ))}
-              <div className="flex items-center justify-between">
-                <span className="text-foreground">Sabado</span>
-                <span className="text-muted-foreground">08:00 - 12:00</span>
-              </div>
-            </div>
-          </Card>
+              </Card>
 
-          <Button className="w-full">Salvar Configuracoes</Button>
+              <Card className="p-6 border-border">
+                <h3 className="font-semibold text-foreground mb-4">Horario de Funcionamento</h3>
+                <div className="space-y-3">
+                  {DIAS_SEMANA.map(({ key, label }) => {
+                    const day = settingsForm.hours[key] || { start: "08:00", end: "18:00", closed: false }
+                    return (
+                      <div key={key} className="flex items-center justify-between gap-3 flex-wrap">
+                        <span className="text-foreground w-32">{label}</span>
+                        {day.closed ? (
+                          <span className="text-sm text-muted-foreground">Fechado</span>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="time"
+                              className="h-8 w-28 text-sm"
+                              value={day.start}
+                              onChange={(e) => updateDayHours(key, "start", e.target.value)}
+                            />
+                            <span className="text-muted-foreground text-sm">até</span>
+                            <Input
+                              type="time"
+                              className="h-8 w-28 text-sm"
+                              value={day.end}
+                              onChange={(e) => updateDayHours(key, "end", e.target.value)}
+                            />
+                          </div>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => updateDayHours(key, "closed", !day.closed)}
+                        >
+                          {day.closed ? "Marcar como aberto" : "Marcar como fechado"}
+                        </Button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Card>
+
+              <Button className="w-full" onClick={handleSaveSettings} disabled={isSavingSettings}>
+                {isSavingSettings ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Salvando...
+                  </>
+                ) : "Salvar Configuracoes"}
+              </Button>
+            </>
+          )}
         </div>
       )}
     </div>

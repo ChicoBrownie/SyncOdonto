@@ -1,10 +1,5 @@
-import { AppLayout } from "@/components/app-layout"
-import { FinancialView } from "@/components/reports/financial-view"
+import { redirect } from "next/navigation"
 
 export default function FinanceiroPage() {
-  return (
-    <AppLayout>
-      <FinancialView />
-    </AppLayout>
-  )
+  redirect("/gestao-clinica")
 }
