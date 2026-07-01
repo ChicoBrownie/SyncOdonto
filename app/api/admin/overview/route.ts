@@ -2,7 +2,10 @@ import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
 // ── ID do administrador autorizado a acessar este painel ───────────────────
-const ADMIN_USER_ID = "28311a6b-0d9c-4360-bd70-5c4612f5c3f9"
+const ADMIN_USER_IDS = [
+  "d732e68a-42c4-4718-90d6-227f6de30fdc",
+  "9a325f8f-9421-4ada-974f-bc38db448573",
+]
 
 // Cliente com Service Role — ignora RLS, só usado neste arquivo de servidor
 function getServiceClient() {
@@ -23,7 +26,7 @@ export async function GET() {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 })
   }
 
-  if (user.id !== ADMIN_USER_ID) {
+  if (!ADMIN_USER_IDS.includes(user.id)) {
     return NextResponse.json({ error: "Acesso restrito ao administrador." }, { status: 403 })
   }
 
