@@ -3,8 +3,9 @@ import { NextResponse } from "next/server"
 
 // ── ID do administrador autorizado a acessar este painel ───────────────────
 const ADMIN_USER_IDS = [
-  "d732e68a-42c4-4718-90d6-227f6de30fdc",
-  "9a325f8f-9421-4ada-974f-bc38db448573",
+  "9185a031-de69-4f9f-a4e1-24352cc7722f",
+  "f02efbc1-919c-4afa-a8b1-58cd90e7277b",
+  "ecc4b798-4abc-43af-b298-e9bba09312cb",
 ]
 
 // Cliente com Service Role — ignora RLS, só usado neste arquivo de servidor
