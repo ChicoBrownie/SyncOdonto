@@ -24,21 +24,29 @@ function NovaSenhaForm() {
 
   useEffect(() => {
     const supabase = createClient()
-
-    // Verifica se é fluxo de convite ou reset
     const type = searchParams.get('type')
+    const token_hash = searchParams.get('token_hash')
+
     if (type === 'invite') setIsInvite(true)
 
-    // Pega dados do usuário atual (já autenticado pelo link do email)
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) {
-        const name = data.user.user_metadata?.full_name ||
-          data.user.user_metadata?.name ||
-          null
-        setUserName(name)
-        if (data.user.user_metadata?.access_role) setIsInvite(true)
-      }
-    })
+    // Troca o token_hash por sessão
+    if (token_hash && type) {
+      supabase.auth.verifyOtp({ token_hash, type: 'invite' }).then(({ data, error }) => {
+        if (!error && data.user) {
+          const name = data.user.user_metadata?.full_name || null
+          setUserName(name)
+          setIsInvite(true)
+        }
+      })
+    } else {
+      supabase.auth.getUser().then(({ data }) => {
+        if (data.user) {
+          const name = data.user.user_metadata?.full_name || null
+          setUserName(name)
+          if (data.user.user_metadata?.access_role) setIsInvite(true)
+        }
+      })
+    }
   }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
