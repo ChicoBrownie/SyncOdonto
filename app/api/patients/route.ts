@@ -1,10 +1,10 @@
-import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 
 export async function GET(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const { searchParams } = new URL(request.url)
   const search = searchParams.get("search")
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("patients")
     .select("*", { count: "exact" })
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1)
 
@@ -37,9 +37,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const body = await request.json()
 
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     .from("patients")
     .insert({
       ...body,
-      user_id: user.id,
+      user_id: ownerId,
     })
     .select()
     .single()

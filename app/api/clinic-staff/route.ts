@@ -14,10 +14,14 @@ export async function GET() {
   if ("error" in result && result.error) return result.error
   const { supabase, user } = result as any
 
+  const { data: ownStaff } = await getServiceClient()
+    .from("clinic_staff").select("user_id").eq("auth_user_id", user.id).maybeSingle()
+  const ownerId = ownStaff?.user_id || user.id
+
   const { data, error } = await supabase
     .from("clinic_staff")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .order("created_at", { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

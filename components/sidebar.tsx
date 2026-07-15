@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import useSWR from "swr"
 import {
   LayoutDashboard,
   Users,
@@ -14,6 +15,8 @@ import {
   X,
   DollarSign,
 } from "lucide-react"
+
+const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
@@ -69,6 +72,9 @@ function SidebarContent({
   onClose: () => void
   showClose: boolean
 }) {
+  const { data: accessRes } = useSWR("/api/auth/check-access", fetcher)
+  const isGestor = (accessRes?.access_role || "gestor") === "gestor"
+
   return (
     <div className="flex h-full flex-col">
       {/* Logo */}
@@ -121,19 +127,21 @@ function SidebarContent({
       </nav>
 
       {/* Sustainability indicator */}
-      <div className="border-t border-border p-4">
-        <div className="flex items-start gap-3 rounded-lg bg-success/10 p-3">
-          <Leaf className="h-5 w-5 text-success mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-success">Impacto Sustentável</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Este mês você economizou{" "}
-              <span className="font-semibold text-foreground">2.847 folhas de papel</span>{" "}
-              🌱
-            </p>
+      {isGestor && (
+        <div className="border-t border-border p-4">
+          <div className="flex items-start gap-3 rounded-lg bg-success/10 p-3">
+            <Leaf className="h-5 w-5 text-success mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-success">Impacto Sustentável</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Este mês você economizou{" "}
+                <span className="font-semibold text-foreground">2.847 folhas de papel</span>{" "}
+                🌱
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

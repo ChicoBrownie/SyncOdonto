@@ -1,10 +1,10 @@
-import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 
 export async function GET(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const { searchParams } = new URL(request.url)
   const patientId = searchParams.get("patientId")
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const { data, error } = await supabase
     .from("dental_chart")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .eq("patient_id", patientId)
     .order("tooth_number", { ascending: true })
 
@@ -28,16 +28,16 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const body = await request.json()
 
   const { data: existing } = await supabase
     .from("dental_chart")
     .select("id")
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .eq("patient_id", body.patient_id)
     .eq("tooth_number", body.tooth_number)
     .single()
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from("dental_chart")
-    .insert({ ...body, user_id: user.id })
+    .insert({ ...body, user_id: ownerId })
     .select()
     .single()
 
