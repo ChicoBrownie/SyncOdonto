@@ -1,0 +1,1947 @@
+﻿
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\admin\overview\route.ts =====
+
+import { createClient } from "@supabase/supabase-js"
+import { NextResponse } from "next/server"
+
+// â”€â”€ ID do administrador autorizado a acessar este painel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const ADMIN_USER_IDS = [
+  "9185a031-de69-4f9f-a4e1-24352cc7722f",
+  "f02efbc1-919c-4afa-a8b1-58cd90e7277b",
+  "ecc4b798-4abc-43af-b298-e9bba09312cb",
+]
+
+// Cliente com Service Role â€” ignora RLS, sÃ³ usado neste arquivo de servidor
+function getServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  return createClient(url, serviceKey)
+}
+
+// Cliente normal â€” sÃ³ para validar quem estÃ¡ fazendo a requisiÃ§Ã£o
+import { createClient as createServerClient } from "@/lib/supabase/server"
+
+export async function GET() {
+  // 1. Verifica se quem estÃ¡ chamando Ã© o admin autorizado
+  const authClient = await createServerClient()
+  const { data: { user }, error: authError } = await authClient.auth.getUser()
+
+  if (authError || !user) {
+    return NextResponse.json({ error: "NÃ£o autenticado." }, { status: 401 })
+  }
+
+  if (!ADMIN_USER_IDS.includes(user.id)) {
+    return NextResponse.json({ error: "Acesso restrito ao administrador." }, { status: 403 })
+  }
+
+  // 2. Usa o Service Role para buscar dados de TODAS as contas
+  const supabase = getServiceClient()
+
+  const { data: patientsData } = await supabase
+    .from("patients")
+    .select("user_id")
+
+  const { data: appointmentsData } = await supabase
+    .from("appointments")
+    .select("user_id, date, status, created_at")
+
+  const { data: financialData } = await supabase
+    .from("financial_transactions")
+    .select("user_id, amount, status, type, created_at")
+
+  const { data: usersData } = await supabase.auth.admin.listUsers()
+
+  // 3. Agrupa tudo por user_id
+  const userIds = new Set<string>()
+  ;[...(patientsData || []), ...(appointmentsData || []), ...(financialData || [])]
+    .forEach((row: any) => userIds.add(row.user_id))
+
+  const today = new Date()
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+
+  const accounts = Array.from(userIds).map((uid) => {
+    const authUser = usersData?.users?.find((u) => u.id === uid)
+
+    const userPatients = (patientsData || []).filter((p: any) => p.user_id === uid)
+    const userAppointments = (appointmentsData || []).filter((a: any) => a.user_id === uid)
+    const userFinancial = (financialData || []).filter((f: any) => f.user_id === uid)
+
+    const appointmentsThisMonth = userAppointments.filter(
+      (a: any) => new Date(a.created_at) >= startOfMonth
+    )
+
+    const revenueThisMonth = userFinancial
+      .filter((f: any) => f.type === "income" && f.status === "paid" && new Date(f.created_at) >= startOfMonth)
+      .reduce((sum: number, f: any) => sum + (Number(f.amount) || 0), 0)
+
+    // Ãšltima atividade = data de criaÃ§Ã£o mais recente entre agendamentos
+    const lastActivity = userAppointments
+      .map((a: any) => new Date(a.created_at).getTime())
+      .sort((a, b) => b - a)[0]
+
+    return {
+      userId: uid,
+      email: authUser?.email || "â€”",
+      createdAt: authUser?.created_at || null,
+      lastSignInAt: authUser?.last_sign_in_at || null,
+      lastActivity: lastActivity ? new Date(lastActivity).toISOString() : null,
+      totalPatients: userPatients.length,
+      totalAppointments: userAppointments.length,
+      appointmentsThisMonth: appointmentsThisMonth.length,
+      revenueThisMonth,
+    }
+  })
+
+  // Ordena por Ãºltima atividade (mais recente primeiro)
+  accounts.sort((a, b) => {
+    if (!a.lastActivity) return 1
+    if (!b.lastActivity) return -1
+    return new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
+  })
+
+  return NextResponse.json({
+    totalAccounts: accounts.length,
+    accounts,
+  })
+}
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\ai-analyses\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const patientId = searchParams.get("patientId")
+  const status = searchParams.get("status")
+  const analysisType = searchParams.get("analysisType")
+  const limit = parseInt(searchParams.get("limit") || "50")
+
+  let query = supabase
+    .from("ai_analyses")
+    .select(`*, patient:patients(id, full_name)`)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(limit)
+
+  if (patientId) query = query.eq("patient_id", patientId)
+  if (status && status !== "all") query = query.eq("status", status)
+  if (analysisType && analysisType !== "all") query = query.eq("analysis_type", analysisType)
+
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data, error } = await supabase
+    .from("ai_analyses")
+    .insert({ ...body, user_id: user.id, status: "pending" })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\ai-analyses\[id]\route.ts =====
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\appointments\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const date = searchParams.get("date")
+  const startDate = searchParams.get("startDate")
+  const endDate = searchParams.get("endDate")
+  const status = searchParams.get("status")
+  const patientId = searchParams.get("patientId") || searchParams.get("patient_id")
+
+  let query = supabase
+    .from("appointments")
+    .select(`*, patient:patients(id, full_name, phone, email)`)
+    .eq("user_id", user.id)
+    .order("date", { ascending: true })
+    .order("time", { ascending: true })
+
+  if (date) query = query.eq("date", date)
+  if (startDate && endDate) query = query.gte("date", startDate).lte("date", endDate)
+  if (status && status !== "all") query = query.eq("status", status)
+  if (patientId) query = query.eq("patient_id", patientId)
+
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+function parseMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number)
+  return h * 60 + m
+}
+
+function hasTimeConflict(startA: string, durationA: number, startB: string, durationB: number): boolean {
+  const startAMin = parseMinutes(startA)
+  const endAMin = startAMin + durationA
+  const startBMin = parseMinutes(startB)
+  const endBMin = startBMin + durationB
+  return startAMin < endBMin && startBMin < endAMin
+}
+
+// FIX BUG 4: retorna data local no fuso de BrasÃ­lia (UTC-3)
+function getTodayBrasilia(): string {
+  const now = new Date()
+  // Ajusta para UTC-3
+  const offset = -3 * 60
+  const localTime = new Date(now.getTime() + (offset - now.getTimezoneOffset()) * 60_000)
+  return localTime.toISOString().split("T")[0]
+}
+
+function getNowMinutesBrasilia(): number {
+  const now = new Date()
+  const offset = -3 * 60
+  const localTime = new Date(now.getTime() + (offset - now.getTimezoneOffset()) * 60_000)
+  return localTime.getHours() * 60 + localTime.getMinutes()
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  // ValidaÃ§Ãµes bÃ¡sicas
+  if (!body.patient_id) {
+    return NextResponse.json({ error: "Paciente Ã© obrigatÃ³rio." }, { status: 400 })
+  }
+  if (!body.doctor_name || body.doctor_name.trim() === "") {
+    return NextResponse.json({ error: "Dentista responsÃ¡vel Ã© obrigatÃ³rio." }, { status: 400 })
+  }
+  if (!body.date || !body.time) {
+    return NextResponse.json({ error: "Data e horÃ¡rio sÃ£o obrigatÃ³rios." }, { status: 400 })
+  }
+  if (typeof body.cost === "number" && body.cost < 0) {
+    return NextResponse.json({ error: "O valor do procedimento nÃ£o pode ser negativo." }, { status: 400 })
+  }
+
+  const duration = body.duration_minutes ?? 60
+
+  // FIX BUG 4: usa data de BrasÃ­lia para comparaÃ§Ã£o
+  const today = getTodayBrasilia()
+
+  if (body.date < today) {
+    return NextResponse.json({ error: "NÃ£o Ã© possÃ­vel agendar em datas passadas." }, { status: 400 })
+  }
+
+  // FIX BUG 1: compara minutos sem adicionar buffer de horas
+  if (body.date === today) {
+    const nowMinutes = getNowMinutesBrasilia()
+    const apptMinutes = parseMinutes(body.time)
+    if (apptMinutes <= nowMinutes) {
+      return NextResponse.json({ error: "NÃ£o Ã© possÃ­vel agendar para um horÃ¡rio que jÃ¡ passou." }, { status: 400 })
+    }
+  }
+
+  // Busca agendamentos existentes na mesma data
+  const { data: existingAppointments, error: fetchError } = await supabase
+    .from("appointments")
+    .select("id, time, duration_minutes, patient_id, doctor_name, status")
+    .eq("user_id", user.id)
+    .eq("date", body.date)
+    .not("status", "in", '("Cancelada","ConcluÃ­da")')
+
+  if (fetchError) {
+    return NextResponse.json({ error: fetchError.message }, { status: 500 })
+  }
+
+  // Verifica conflitos
+  for (const existing of existingAppointments ?? []) {
+    const existingDuration = existing.duration_minutes ?? 60
+    const conflict = hasTimeConflict(body.time, duration, existing.time, existingDuration)
+    if (!conflict) continue
+
+    if (existing.doctor_name && body.doctor_name &&
+      existing.doctor_name.trim().toLowerCase() === body.doctor_name.trim().toLowerCase()) {
+      return NextResponse.json({
+        error: `Conflito de horÃ¡rio: o(a) dentista ${body.doctor_name} jÃ¡ possui um agendamento Ã s ${existing.time.substring(0, 5)} nesta data.`,
+      }, { status: 409 })
+    }
+
+    if (existing.patient_id === body.patient_id) {
+      return NextResponse.json({
+        error: `Conflito de horÃ¡rio: este paciente jÃ¡ possui um agendamento Ã s ${existing.time.substring(0, 5)} nesta data.`,
+      }, { status: 409 })
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("appointments")
+    .insert({ ...body, user_id: user.id })
+    .select(`*, patient:patients(id, full_name, phone, email)`)
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\appointments\[id]\route.ts =====
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\clinic-settings\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET() {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { data, error } = await supabase
+    .from("clinic_settings")
+    .select("*")
+    .eq("user_id", user.id)
+    .single()
+
+  if (error && error.code !== "PGRST116") {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data: existing } = await supabase
+    .from("clinic_settings")
+    .select("id")
+    .eq("user_id", user.id)
+    .single()
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from("clinic_settings")
+      .update(body)
+      .eq("user_id", user.id)
+      .select()
+      .single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ data })
+  }
+
+  const { data, error } = await supabase
+    .from("clinic_settings")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\clinic-staff\route.ts =====
+
+import { NextResponse } from "next/server"
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { createClient } from "@supabase/supabase-js"
+
+function getServiceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
+
+export async function GET() {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { data, error } = await supabase
+    .from("clinic_staff")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+  const { full_name, role, specialty, email, phone, access_role } = body
+
+  if (!full_name?.trim()) {
+    return NextResponse.json({ error: "Nome Ã© obrigatÃ³rio" }, { status: 400 })
+  }
+
+  // Se tiver email e access_role, envia convite via Supabase Auth
+  let auth_user_id = null
+  let invite_sent_at = null
+
+  if (email?.trim() && access_role && access_role !== "gestor") {
+    const adminClient = getServiceClient()
+
+    // Busca a URL do site para o redirect do convite
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://syncodonto.netlify.app"
+
+    const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
+      email.trim(),
+      {
+        redirectTo: `${siteUrl}/auth/callback`,
+        data: {
+          full_name: full_name.trim(),
+          access_role,
+          invited_by: user.id,
+        },
+      }
+    )
+
+    if (inviteError) {
+      // Se o usuÃ¡rio jÃ¡ existe, continua sem erro
+      if (!inviteError.message.includes("already been registered")) {
+        return NextResponse.json({ error: `Erro ao enviar convite: ${inviteError.message}` }, { status: 500 })
+      }
+      // Busca o user_id do usuÃ¡rio jÃ¡ existente
+      const { data: existingUsers } = await adminClient.auth.admin.listUsers()
+      const existingUser = existingUsers?.users?.find(u => u.email === email.trim())
+      if (existingUser) auth_user_id = existingUser.id
+    } else {
+      auth_user_id = inviteData?.user?.id || null
+      invite_sent_at = new Date().toISOString()
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("clinic_staff")
+    .insert({
+      full_name: full_name.trim(),
+      role: role || "Dentista",
+      specialty: specialty || null,
+      email: email?.trim() || null,
+      phone: phone?.trim() || null,
+      access_role: access_role || "dentista",
+      auth_user_id,
+      invite_sent_at,
+      user_id: user.id,
+    })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data, invite_sent: !!invite_sent_at })
+}
+
+export async function PUT(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+  const { id, ...updates } = body
+
+  const { data, error } = await supabase
+    .from("clinic_staff")
+    .update(updates)
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function DELETE(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const id = searchParams.get("id")
+  if (!id) return NextResponse.json({ error: "ID obrigatÃ³rio" }, { status: 400 })
+
+  const { error } = await supabase
+    .from("clinic_staff")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ success: true })
+}
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\dashboard\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET() {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const today = new Date()
+  const todayStr = today.toISOString().split("T")[0]
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split("T")[0]
+  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split("T")[0]
+
+  const [
+    { count: totalPatients },
+    { count: appointmentsToday },
+    { count: pendingTreatments },
+    { count: completedTreatments },
+    { data: revenueData },
+    { count: aiAnalysesToday },
+    { data: upcomingAppointments },
+    { data: recentPatients },
+  ] = await Promise.all([
+    supabase.from("patients").select("*", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "Ativo"),
+    supabase.from("appointments").select("*", { count: "exact", head: true }).eq("user_id", user.id).eq("date", todayStr),
+    supabase.from("treatments").select("*", { count: "exact", head: true }).eq("user_id", user.id).in("status", ["planned", "in_progress"]),
+    supabase.from("treatments").select("*", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "completed").gte("completed_date", startOfMonth).lte("completed_date", endOfMonth),
+    supabase.from("financial_transactions").select("amount").eq("user_id", user.id).eq("type", "income").eq("status", "paid").gte("paid_date", startOfMonth).lte("paid_date", endOfMonth),
+    supabase.from("ai_analyses").select("*", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", `${todayStr}T00:00:00`).lte("created_at", `${todayStr}T23:59:59`),
+    supabase.from("appointments").select("*, patient:patients(id, full_name, phone)").eq("user_id", user.id).gte("date", todayStr).order("date", { ascending: true }).order("time", { ascending: true }).limit(5),
+    supabase.from("patients").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5),
+  ])
+
+  const monthlyRevenue = revenueData?.reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0) || 0
+
+  return NextResponse.json({
+    stats: {
+      totalPatients: totalPatients || 0,
+      appointmentsToday: appointmentsToday || 0,
+      pendingTreatments: pendingTreatments || 0,
+      completedTreatments: completedTreatments || 0,
+      monthlyRevenue,
+      aiAnalysesToday: aiAnalysesToday || 0,
+    },
+    upcomingAppointments: upcomingAppointments || [],
+    recentPatients: recentPatients || [],
+  })
+}
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\dental-charts\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const patientId = searchParams.get("patientId")
+
+  if (!patientId) {
+    return NextResponse.json({ error: "Patient ID is required" }, { status: 400 })
+  }
+
+  const { data, error } = await supabase
+    .from("dental_chart")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("patient_id", patientId)
+    .order("tooth_number", { ascending: true })
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data: existing } = await supabase
+    .from("dental_chart")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("patient_id", body.patient_id)
+    .eq("tooth_number", body.tooth_number)
+    .single()
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from("dental_chart")
+      .update({ condition: body.condition, notes: body.notes })
+      .eq("id", existing.id)
+      .select()
+      .single()
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ data })
+  }
+
+  const { data, error } = await supabase
+    .from("dental_chart")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\documents\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const patientId = searchParams.get("patientId") || searchParams.get("patient_id")
+  const documentType = searchParams.get("documentType") || searchParams.get("document_type")
+
+  let query = supabase
+    .from("documents")
+    .select(`*, patient:patients(id, full_name)`)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+
+  if (patientId) query = query.eq("patient_id", patientId)
+  if (documentType && documentType !== "all") query = query.eq("document_type", documentType)
+
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data, error } = await supabase
+    .from("documents")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function DELETE(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const id = searchParams.get("id")
+
+  if (!id) return NextResponse.json({ error: "ID obrigatorio" }, { status: 400 })
+
+  const { error } = await supabase
+    .from("documents")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ success: true })
+}
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\financial\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const type = searchParams.get("type")
+  const status = searchParams.get("status")
+  const startDate = searchParams.get("startDate")
+  const endDate = searchParams.get("endDate")
+  const patientId = searchParams.get("patientId")
+
+  let query = supabase
+    .from("financial_transactions")
+    .select(`*, patient:patients(id, full_name), treatment:treatments(id, treatment_type)`)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+
+  if (type && type !== "all") query = query.eq("type", type)
+  if (status && status !== "all") query = query.eq("status", status)
+  if (startDate && endDate) {
+    query = query
+      .gte("created_at", `${startDate}T00:00:00.000Z`)
+      .lt("created_at", `${endDate}T23:59:59.999Z`)
+  }
+  if (patientId) query = query.eq("patient_id", patientId)
+
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  // ValidaÃ§Ãµes
+  if (!body.patient_id) {
+    return NextResponse.json({ error: "Paciente Ã© obrigatÃ³rio." }, { status: 400 })
+  }
+  if (!body.description || body.description.trim() === "") {
+    return NextResponse.json({ error: "DescriÃ§Ã£o Ã© obrigatÃ³ria." }, { status: 400 })
+  }
+  if (typeof body.amount !== "number" || body.amount <= 0) {
+    return NextResponse.json({ error: "Valor deve ser maior que zero." }, { status: 400 })
+  }
+
+  const { data, error } = await supabase
+    .from("financial_transactions")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\financial\[id]\route.ts =====
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\medical-records\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const patientId = searchParams.get("patientId")
+  const recordType = searchParams.get("recordType")
+
+  let query = supabase
+    .from("clinical_records")
+    .select(`*, patient:patients(id, full_name)`)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+
+  if (patientId) {
+    query = query.eq("patient_id", patientId)
+  }
+
+  if (recordType && recordType !== "all") {
+    query = query.eq("record_type", recordType)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data, error } = await supabase
+    .from("clinical_records")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function DELETE(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const id = searchParams.get("id")
+
+  if (!id) return NextResponse.json({ error: "ID obrigatorio" }, { status: 400 })
+
+  const { error } = await supabase
+    .from("clinical_records")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ success: true })
+}
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\patients\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const search = searchParams.get("search")
+  const status = searchParams.get("status")
+  const limit = parseInt(searchParams.get("limit") || "50")
+  const offset = parseInt(searchParams.get("offset") || "0")
+
+  let query = supabase
+    .from("patients")
+    .select("*", { count: "exact" })
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1)
+
+  if (search) {
+    query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`)
+  }
+
+  if (status && status !== "all") {
+    query = query.eq("status", status)
+  }
+
+  const { data, error, count } = await query
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data, count })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data, error } = await supabase
+    .from("patients")
+    .insert({
+      ...body,
+      user_id: user.id,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\patients\[id]\route.ts =====
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\treatments\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const patientId = searchParams.get("patientId") || searchParams.get("patient_id")
+  const status = searchParams.get("status")
+
+  let query = supabase
+    .from("treatments")
+    .select(`*, patient:patients(id, full_name)`)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+
+  if (patientId) {
+    query = query.eq("patient_id", patientId)
+  }
+
+  if (status && status !== "all") {
+    query = query.eq("status", status)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data, error } = await supabase
+    .from("treatments")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\treatments\[id]\route.ts =====
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\admin\overview\route.ts =====
+
+import { createClient } from "@supabase/supabase-js"
+import { NextResponse } from "next/server"
+
+// â”€â”€ ID do administrador autorizado a acessar este painel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const ADMIN_USER_IDS = [
+  "9185a031-de69-4f9f-a4e1-24352cc7722f",
+  "f02efbc1-919c-4afa-a8b1-58cd90e7277b",
+  "ecc4b798-4abc-43af-b298-e9bba09312cb",
+]
+
+// Cliente com Service Role â€” ignora RLS, sÃ³ usado neste arquivo de servidor
+function getServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  return createClient(url, serviceKey)
+}
+
+// Cliente normal â€” sÃ³ para validar quem estÃ¡ fazendo a requisiÃ§Ã£o
+import { createClient as createServerClient } from "@/lib/supabase/server"
+
+export async function GET() {
+  // 1. Verifica se quem estÃ¡ chamando Ã© o admin autorizado
+  const authClient = await createServerClient()
+  const { data: { user }, error: authError } = await authClient.auth.getUser()
+
+  if (authError || !user) {
+    return NextResponse.json({ error: "NÃ£o autenticado." }, { status: 401 })
+  }
+
+  if (!ADMIN_USER_IDS.includes(user.id)) {
+    return NextResponse.json({ error: "Acesso restrito ao administrador." }, { status: 403 })
+  }
+
+  // 2. Usa o Service Role para buscar dados de TODAS as contas
+  const supabase = getServiceClient()
+
+  const { data: patientsData } = await supabase
+    .from("patients")
+    .select("user_id")
+
+  const { data: appointmentsData } = await supabase
+    .from("appointments")
+    .select("user_id, date, status, created_at")
+
+  const { data: financialData } = await supabase
+    .from("financial_transactions")
+    .select("user_id, amount, status, type, created_at")
+
+  const { data: usersData } = await supabase.auth.admin.listUsers()
+
+  // 3. Agrupa tudo por user_id
+  const userIds = new Set<string>()
+  ;[...(patientsData || []), ...(appointmentsData || []), ...(financialData || [])]
+    .forEach((row: any) => userIds.add(row.user_id))
+
+  const today = new Date()
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+
+  const accounts = Array.from(userIds).map((uid) => {
+    const authUser = usersData?.users?.find((u) => u.id === uid)
+
+    const userPatients = (patientsData || []).filter((p: any) => p.user_id === uid)
+    const userAppointments = (appointmentsData || []).filter((a: any) => a.user_id === uid)
+    const userFinancial = (financialData || []).filter((f: any) => f.user_id === uid)
+
+    const appointmentsThisMonth = userAppointments.filter(
+      (a: any) => new Date(a.created_at) >= startOfMonth
+    )
+
+    const revenueThisMonth = userFinancial
+      .filter((f: any) => f.type === "income" && f.status === "paid" && new Date(f.created_at) >= startOfMonth)
+      .reduce((sum: number, f: any) => sum + (Number(f.amount) || 0), 0)
+
+    // Ãšltima atividade = data de criaÃ§Ã£o mais recente entre agendamentos
+    const lastActivity = userAppointments
+      .map((a: any) => new Date(a.created_at).getTime())
+      .sort((a, b) => b - a)[0]
+
+    return {
+      userId: uid,
+      email: authUser?.email || "â€”",
+      createdAt: authUser?.created_at || null,
+      lastSignInAt: authUser?.last_sign_in_at || null,
+      lastActivity: lastActivity ? new Date(lastActivity).toISOString() : null,
+      totalPatients: userPatients.length,
+      totalAppointments: userAppointments.length,
+      appointmentsThisMonth: appointmentsThisMonth.length,
+      revenueThisMonth,
+    }
+  })
+
+  // Ordena por Ãºltima atividade (mais recente primeiro)
+  accounts.sort((a, b) => {
+    if (!a.lastActivity) return 1
+    if (!b.lastActivity) return -1
+    return new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()
+  })
+
+  return NextResponse.json({
+    totalAccounts: accounts.length,
+    accounts,
+  })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\ai-analyses\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const patientId = searchParams.get("patientId")
+  const status = searchParams.get("status")
+  const analysisType = searchParams.get("analysisType")
+  const limit = parseInt(searchParams.get("limit") || "50")
+
+  let query = supabase
+    .from("ai_analyses")
+    .select(`*, patient:patients(id, full_name)`)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(limit)
+
+  if (patientId) query = query.eq("patient_id", patientId)
+  if (status && status !== "all") query = query.eq("status", status)
+  if (analysisType && analysisType !== "all") query = query.eq("analysis_type", analysisType)
+
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data, error } = await supabase
+    .from("ai_analyses")
+    .insert({ ...body, user_id: user.id, status: "pending" })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\ai-analyses\[id]\route.ts =====
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\appointments\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const date = searchParams.get("date")
+  const startDate = searchParams.get("startDate")
+  const endDate = searchParams.get("endDate")
+  const status = searchParams.get("status")
+  const patientId = searchParams.get("patientId") || searchParams.get("patient_id")
+
+  let query = supabase
+    .from("appointments")
+    .select(`*, patient:patients(id, full_name, phone, email)`)
+    .eq("user_id", user.id)
+    .order("date", { ascending: true })
+    .order("time", { ascending: true })
+
+  if (date) query = query.eq("date", date)
+  if (startDate && endDate) query = query.gte("date", startDate).lte("date", endDate)
+  if (status && status !== "all") query = query.eq("status", status)
+  if (patientId) query = query.eq("patient_id", patientId)
+
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+function parseMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number)
+  return h * 60 + m
+}
+
+function hasTimeConflict(startA: string, durationA: number, startB: string, durationB: number): boolean {
+  const startAMin = parseMinutes(startA)
+  const endAMin = startAMin + durationA
+  const startBMin = parseMinutes(startB)
+  const endBMin = startBMin + durationB
+  return startAMin < endBMin && startBMin < endAMin
+}
+
+// FIX BUG 4: retorna data local no fuso de BrasÃ­lia (UTC-3)
+function getTodayBrasilia(): string {
+  const now = new Date()
+  // Ajusta para UTC-3
+  const offset = -3 * 60
+  const localTime = new Date(now.getTime() + (offset - now.getTimezoneOffset()) * 60_000)
+  return localTime.toISOString().split("T")[0]
+}
+
+function getNowMinutesBrasilia(): number {
+  const now = new Date()
+  const offset = -3 * 60
+  const localTime = new Date(now.getTime() + (offset - now.getTimezoneOffset()) * 60_000)
+  return localTime.getHours() * 60 + localTime.getMinutes()
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  // ValidaÃ§Ãµes bÃ¡sicas
+  if (!body.patient_id) {
+    return NextResponse.json({ error: "Paciente Ã© obrigatÃ³rio." }, { status: 400 })
+  }
+  if (!body.doctor_name || body.doctor_name.trim() === "") {
+    return NextResponse.json({ error: "Dentista responsÃ¡vel Ã© obrigatÃ³rio." }, { status: 400 })
+  }
+  if (!body.date || !body.time) {
+    return NextResponse.json({ error: "Data e horÃ¡rio sÃ£o obrigatÃ³rios." }, { status: 400 })
+  }
+  if (typeof body.cost === "number" && body.cost < 0) {
+    return NextResponse.json({ error: "O valor do procedimento nÃ£o pode ser negativo." }, { status: 400 })
+  }
+
+  const duration = body.duration_minutes ?? 60
+
+  // FIX BUG 4: usa data de BrasÃ­lia para comparaÃ§Ã£o
+  const today = getTodayBrasilia()
+
+  if (body.date < today) {
+    return NextResponse.json({ error: "NÃ£o Ã© possÃ­vel agendar em datas passadas." }, { status: 400 })
+  }
+
+  // FIX BUG 1: compara minutos sem adicionar buffer de horas
+  if (body.date === today) {
+    const nowMinutes = getNowMinutesBrasilia()
+    const apptMinutes = parseMinutes(body.time)
+    if (apptMinutes <= nowMinutes) {
+      return NextResponse.json({ error: "NÃ£o Ã© possÃ­vel agendar para um horÃ¡rio que jÃ¡ passou." }, { status: 400 })
+    }
+  }
+
+  // Busca agendamentos existentes na mesma data
+  const { data: existingAppointments, error: fetchError } = await supabase
+    .from("appointments")
+    .select("id, time, duration_minutes, patient_id, doctor_name, status")
+    .eq("user_id", user.id)
+    .eq("date", body.date)
+    .not("status", "in", '("Cancelada","ConcluÃ­da")')
+
+  if (fetchError) {
+    return NextResponse.json({ error: fetchError.message }, { status: 500 })
+  }
+
+  // Verifica conflitos
+  for (const existing of existingAppointments ?? []) {
+    const existingDuration = existing.duration_minutes ?? 60
+    const conflict = hasTimeConflict(body.time, duration, existing.time, existingDuration)
+    if (!conflict) continue
+
+    if (existing.doctor_name && body.doctor_name &&
+      existing.doctor_name.trim().toLowerCase() === body.doctor_name.trim().toLowerCase()) {
+      return NextResponse.json({
+        error: `Conflito de horÃ¡rio: o(a) dentista ${body.doctor_name} jÃ¡ possui um agendamento Ã s ${existing.time.substring(0, 5)} nesta data.`,
+      }, { status: 409 })
+    }
+
+    if (existing.patient_id === body.patient_id) {
+      return NextResponse.json({
+        error: `Conflito de horÃ¡rio: este paciente jÃ¡ possui um agendamento Ã s ${existing.time.substring(0, 5)} nesta data.`,
+      }, { status: 409 })
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("appointments")
+    .insert({ ...body, user_id: user.id })
+    .select(`*, patient:patients(id, full_name, phone, email)`)
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\appointments\[id]\route.ts =====
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\clinic-settings\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET() {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { data, error } = await supabase
+    .from("clinic_settings")
+    .select("*")
+    .eq("user_id", user.id)
+    .single()
+
+  if (error && error.code !== "PGRST116") {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data: existing } = await supabase
+    .from("clinic_settings")
+    .select("id")
+    .eq("user_id", user.id)
+    .single()
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from("clinic_settings")
+      .update(body)
+      .eq("user_id", user.id)
+      .select()
+      .single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ data })
+  }
+
+  const { data, error } = await supabase
+    .from("clinic_settings")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\clinic-staff\route.ts =====
+
+import { NextResponse } from "next/server"
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { createClient } from "@supabase/supabase-js"
+
+function getServiceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
+
+export async function GET() {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { data, error } = await supabase
+    .from("clinic_staff")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+  const { full_name, role, specialty, email, phone, access_role } = body
+
+  if (!full_name?.trim()) {
+    return NextResponse.json({ error: "Nome Ã© obrigatÃ³rio" }, { status: 400 })
+  }
+
+  // Se tiver email e access_role, envia convite via Supabase Auth
+  let auth_user_id = null
+  let invite_sent_at = null
+
+  if (email?.trim() && access_role && access_role !== "gestor") {
+    const adminClient = getServiceClient()
+
+    // Busca a URL do site para o redirect do convite
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://syncodonto.netlify.app"
+
+    const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
+      email.trim(),
+      {
+        redirectTo: `${siteUrl}/auth/callback`,
+        data: {
+          full_name: full_name.trim(),
+          access_role,
+          invited_by: user.id,
+        },
+      }
+    )
+
+    if (inviteError) {
+      // Se o usuÃ¡rio jÃ¡ existe, continua sem erro
+      if (!inviteError.message.includes("already been registered")) {
+        return NextResponse.json({ error: `Erro ao enviar convite: ${inviteError.message}` }, { status: 500 })
+      }
+      // Busca o user_id do usuÃ¡rio jÃ¡ existente
+      const { data: existingUsers } = await adminClient.auth.admin.listUsers()
+      const existingUser = existingUsers?.users?.find(u => u.email === email.trim())
+      if (existingUser) auth_user_id = existingUser.id
+    } else {
+      auth_user_id = inviteData?.user?.id || null
+      invite_sent_at = new Date().toISOString()
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("clinic_staff")
+    .insert({
+      full_name: full_name.trim(),
+      role: role || "Dentista",
+      specialty: specialty || null,
+      email: email?.trim() || null,
+      phone: phone?.trim() || null,
+      access_role: access_role || "dentista",
+      auth_user_id,
+      invite_sent_at,
+      user_id: user.id,
+    })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data, invite_sent: !!invite_sent_at })
+}
+
+export async function PUT(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+  const { id, ...updates } = body
+
+  const { data, error } = await supabase
+    .from("clinic_staff")
+    .update(updates)
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function DELETE(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const id = searchParams.get("id")
+  if (!id) return NextResponse.json({ error: "ID obrigatÃ³rio" }, { status: 400 })
+
+  const { error } = await supabase
+    .from("clinic_staff")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ success: true })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\dashboard\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET() {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const today = new Date()
+  const todayStr = today.toISOString().split("T")[0]
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split("T")[0]
+  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split("T")[0]
+
+  const [
+    { count: totalPatients },
+    { count: appointmentsToday },
+    { count: pendingTreatments },
+    { count: completedTreatments },
+    { data: revenueData },
+    { count: aiAnalysesToday },
+    { data: upcomingAppointments },
+    { data: recentPatients },
+  ] = await Promise.all([
+    supabase.from("patients").select("*", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "Ativo"),
+    supabase.from("appointments").select("*", { count: "exact", head: true }).eq("user_id", user.id).eq("date", todayStr),
+    supabase.from("treatments").select("*", { count: "exact", head: true }).eq("user_id", user.id).in("status", ["planned", "in_progress"]),
+    supabase.from("treatments").select("*", { count: "exact", head: true }).eq("user_id", user.id).eq("status", "completed").gte("completed_date", startOfMonth).lte("completed_date", endOfMonth),
+    supabase.from("financial_transactions").select("amount").eq("user_id", user.id).eq("type", "income").eq("status", "paid").gte("paid_date", startOfMonth).lte("paid_date", endOfMonth),
+    supabase.from("ai_analyses").select("*", { count: "exact", head: true }).eq("user_id", user.id).gte("created_at", `${todayStr}T00:00:00`).lte("created_at", `${todayStr}T23:59:59`),
+    supabase.from("appointments").select("*, patient:patients(id, full_name, phone)").eq("user_id", user.id).gte("date", todayStr).order("date", { ascending: true }).order("time", { ascending: true }).limit(5),
+    supabase.from("patients").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5),
+  ])
+
+  const monthlyRevenue = revenueData?.reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0) || 0
+
+  return NextResponse.json({
+    stats: {
+      totalPatients: totalPatients || 0,
+      appointmentsToday: appointmentsToday || 0,
+      pendingTreatments: pendingTreatments || 0,
+      completedTreatments: completedTreatments || 0,
+      monthlyRevenue,
+      aiAnalysesToday: aiAnalysesToday || 0,
+    },
+    upcomingAppointments: upcomingAppointments || [],
+    recentPatients: recentPatients || [],
+  })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\dental-charts\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const patientId = searchParams.get("patientId")
+
+  if (!patientId) {
+    return NextResponse.json({ error: "Patient ID is required" }, { status: 400 })
+  }
+
+  const { data, error } = await supabase
+    .from("dental_chart")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("patient_id", patientId)
+    .order("tooth_number", { ascending: true })
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data: existing } = await supabase
+    .from("dental_chart")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("patient_id", body.patient_id)
+    .eq("tooth_number", body.tooth_number)
+    .single()
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from("dental_chart")
+      .update({ condition: body.condition, notes: body.notes })
+      .eq("id", existing.id)
+      .select()
+      .single()
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ data })
+  }
+
+  const { data, error } = await supabase
+    .from("dental_chart")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\documents\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const patientId = searchParams.get("patientId") || searchParams.get("patient_id")
+  const documentType = searchParams.get("documentType") || searchParams.get("document_type")
+
+  let query = supabase
+    .from("documents")
+    .select(`*, patient:patients(id, full_name)`)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+
+  if (patientId) query = query.eq("patient_id", patientId)
+  if (documentType && documentType !== "all") query = query.eq("document_type", documentType)
+
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data, error } = await supabase
+    .from("documents")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function DELETE(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const id = searchParams.get("id")
+
+  if (!id) return NextResponse.json({ error: "ID obrigatorio" }, { status: 400 })
+
+  const { error } = await supabase
+    .from("documents")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ success: true })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\financial\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const type = searchParams.get("type")
+  const status = searchParams.get("status")
+  const startDate = searchParams.get("startDate")
+  const endDate = searchParams.get("endDate")
+  const patientId = searchParams.get("patientId")
+
+  let query = supabase
+    .from("financial_transactions")
+    .select(`*, patient:patients(id, full_name), treatment:treatments(id, treatment_type)`)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+
+  if (type && type !== "all") query = query.eq("type", type)
+  if (status && status !== "all") query = query.eq("status", status)
+  if (startDate && endDate) {
+    query = query
+      .gte("created_at", `${startDate}T00:00:00.000Z`)
+      .lt("created_at", `${endDate}T23:59:59.999Z`)
+  }
+  if (patientId) query = query.eq("patient_id", patientId)
+
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  // ValidaÃ§Ãµes
+  if (!body.patient_id) {
+    return NextResponse.json({ error: "Paciente Ã© obrigatÃ³rio." }, { status: 400 })
+  }
+  if (!body.description || body.description.trim() === "") {
+    return NextResponse.json({ error: "DescriÃ§Ã£o Ã© obrigatÃ³ria." }, { status: 400 })
+  }
+  if (typeof body.amount !== "number" || body.amount <= 0) {
+    return NextResponse.json({ error: "Valor deve ser maior que zero." }, { status: 400 })
+  }
+
+  const { data, error } = await supabase
+    .from("financial_transactions")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\financial\[id]\route.ts =====
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\medical-records\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const patientId = searchParams.get("patientId")
+  const recordType = searchParams.get("recordType")
+
+  let query = supabase
+    .from("clinical_records")
+    .select(`*, patient:patients(id, full_name)`)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+
+  if (patientId) {
+    query = query.eq("patient_id", patientId)
+  }
+
+  if (recordType && recordType !== "all") {
+    query = query.eq("record_type", recordType)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data, error } = await supabase
+    .from("clinical_records")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function DELETE(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const id = searchParams.get("id")
+
+  if (!id) return NextResponse.json({ error: "ID obrigatorio" }, { status: 400 })
+
+  const { error } = await supabase
+    .from("clinical_records")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ success: true })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\patients\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const search = searchParams.get("search")
+  const status = searchParams.get("status")
+  const limit = parseInt(searchParams.get("limit") || "50")
+  const offset = parseInt(searchParams.get("offset") || "0")
+
+  let query = supabase
+    .from("patients")
+    .select("*", { count: "exact" })
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1)
+
+  if (search) {
+    query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`)
+  }
+
+  if (status && status !== "all") {
+    query = query.eq("status", status)
+  }
+
+  const { data, error, count } = await query
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data, count })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data, error } = await supabase
+    .from("patients")
+    .insert({
+      ...body,
+      user_id: user.id,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\patients\[id]\route.ts =====
+
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\treatments\route.ts =====
+
+import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { NextResponse } from "next/server"
+
+export async function GET(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const { searchParams } = new URL(request.url)
+  const patientId = searchParams.get("patientId") || searchParams.get("patient_id")
+  const status = searchParams.get("status")
+
+  let query = supabase
+    .from("treatments")
+    .select(`*, patient:patients(id, full_name)`)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+
+  if (patientId) {
+    query = query.eq("patient_id", patientId)
+  }
+
+  if (status && status !== "all") {
+    query = query.eq("status", status)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+export async function POST(request: Request) {
+  const result = await getAuthenticatedClient()
+  if ("error" in result && result.error) return result.error
+  const { supabase, user } = result as any
+
+  const body = await request.json()
+
+  const { data, error } = await supabase
+    .from("treatments")
+    .insert({ ...body, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ data })
+}
+
+===== C:\Users\USER\Documents\empreendimento\syncodonto\app\api\treatments\[id]\route.ts =====
+
