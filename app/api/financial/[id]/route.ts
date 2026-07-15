@@ -1,13 +1,13 @@
-import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
   const { id } = await params
 
   const body = await request.json()
@@ -16,7 +16,7 @@ export async function PATCH(
     .from("financial_transactions")
     .update(body)
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .select()
     .single()
 
