@@ -1,15 +1,15 @@
-import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 
 export async function GET() {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const { data, error } = await supabase
     .from("clinic_settings")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .single()
 
   if (error && error.code !== "PGRST116") {
@@ -20,23 +20,23 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const body = await request.json()
 
   const { data: existing } = await supabase
     .from("clinic_settings")
     .select("id")
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .single()
 
   if (existing) {
     const { data, error } = await supabase
       .from("clinic_settings")
       .update(body)
-      .eq("user_id", user.id)
+      .eq("user_id", ownerId)
       .select()
       .single()
 
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from("clinic_settings")
-    .insert({ ...body, user_id: user.id })
+    .insert({ ...body, user_id: ownerId })
     .select()
     .single()
 

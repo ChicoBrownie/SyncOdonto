@@ -1,10 +1,10 @@
-import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 
 export async function GET(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const { searchParams } = new URL(request.url)
   const date = searchParams.get("date")
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("appointments")
     .select(`*, patient:patients(id, full_name, phone, email)`)
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .order("date", { ascending: true })
     .order("time", { ascending: true })
 
@@ -60,9 +60,9 @@ function getNowMinutesBrasilia(): number {
 }
 
 export async function POST(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const body = await request.json()
 
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
   const { data: existingAppointments, error: fetchError } = await supabase
     .from("appointments")
     .select("id, time, duration_minutes, patient_id, doctor_name, status")
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .eq("date", body.date)
     .not("status", "in", '("Cancelada","Concluída")')
 
@@ -132,7 +132,7 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from("appointments")
-    .insert({ ...body, user_id: user.id })
+    .insert({ ...body, user_id: ownerId })
     .select(`*, patient:patients(id, full_name, phone, email)`)
     .single()
 

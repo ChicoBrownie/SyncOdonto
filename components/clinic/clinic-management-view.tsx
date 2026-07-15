@@ -38,6 +38,12 @@ export function ClinicManagementView() {
   const { data: staffRes, mutate: mutateStaff } = useSWR("/api/clinic-staff", fetcher)
   const staff = staffRes?.data || []
 
+  const { data: accessRes } = useSWR("/api/auth/check-access", fetcher)
+  const isGestor = (accessRes?.access_role || "gestor") === "gestor"
+  const visibleTabs = (["equipe", "financeiro", "configuracoes"] as const).filter(
+    (tab) => isGestor || tab === "equipe"
+  )
+
   const today = new Date().toISOString().split("T")[0]
   const { data: apptRes } = useSWR(`/api/appointments?date=${today}`, fetcher)
   const todayAppointments = apptRes?.data || []
@@ -183,6 +189,10 @@ export function ClinicManagementView() {
 
   const activeStaff = staff.filter((s: any) => s.is_active).length
 
+  useEffect(() => {
+    if (!isGestor && activeTab !== "equipe") setActiveTab("equipe")
+  }, [isGestor, activeTab])
+
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-6">
       <div>
@@ -215,7 +225,7 @@ export function ClinicManagementView() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-border overflow-x-auto">
-        {(["equipe", "financeiro", "configuracoes"] as const).map(tab => (
+        {visibleTabs.map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 font-medium whitespace-nowrap capitalize ${
               activeTab === tab ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"

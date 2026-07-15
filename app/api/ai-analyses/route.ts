@@ -1,10 +1,10 @@
-import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 
 export async function GET(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const { searchParams } = new URL(request.url)
   const patientId = searchParams.get("patientId")
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("ai_analyses")
     .select(`*, patient:patients(id, full_name)`)
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .order("created_at", { ascending: false })
     .limit(limit)
 
@@ -29,15 +29,15 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const body = await request.json()
 
   const { data, error } = await supabase
     .from("ai_analyses")
-    .insert({ ...body, user_id: user.id, status: "pending" })
+    .insert({ ...body, user_id: ownerId, status: "pending" })
     .select()
     .single()
 

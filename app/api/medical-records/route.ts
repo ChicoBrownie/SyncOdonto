@@ -1,10 +1,10 @@
-import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 
 export async function GET(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const { searchParams } = new URL(request.url)
   const patientId = searchParams.get("patientId")
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("clinical_records")
     .select(`*, patient:patients(id, full_name)`)
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .order("created_at", { ascending: false })
 
   if (patientId) {
@@ -34,15 +34,15 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const body = await request.json()
 
   const { data, error } = await supabase
     .from("clinical_records")
-    .insert({ ...body, user_id: user.id })
+    .insert({ ...body, user_id: ownerId })
     .select()
     .single()
 
@@ -54,9 +54,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const { searchParams } = new URL(request.url)
   const id = searchParams.get("id")
@@ -67,7 +67,7 @@ export async function DELETE(request: Request) {
     .from("clinical_records")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })
