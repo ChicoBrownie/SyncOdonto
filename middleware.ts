@@ -3,7 +3,6 @@ import { createServerClient } from '@supabase/ssr'
 import { type NextRequest, NextResponse } from 'next/server'
 
 const GESTOR_ONLY = [
-  "/gestao-clinica",
   "/relatorios/financeiro",
   "/admin",
 ]
@@ -60,7 +59,7 @@ export async function middleware(request: NextRequest) {
 
   // Se for funcionário sem permissão de gestor, bloqueia
   if (staffRecord && staffRecord.access_role !== 'gestor') {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+    return NextResponse.redirect(new URL('/', request.url))
   }
 
   return response

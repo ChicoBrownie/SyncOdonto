@@ -72,6 +72,7 @@ function NovaSenhaForm() {
       if (error) {
         setError('Erro ao definir senha. O link pode ter expirado. Solicite um novo.')
       } else {
+        await fetch("/api/auth/link-staff", { method: "POST" }).catch(() => {})
         setDone(true)
         setTimeout(() => router.push('/'), 2500)
       }
