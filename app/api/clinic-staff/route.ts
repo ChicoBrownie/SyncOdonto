@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
+import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { createClient } from "@supabase/supabase-js"
 
 function getServiceClient() {
@@ -10,13 +10,9 @@ function getServiceClient() {
 }
 
 export async function GET() {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
-
-  const { data: ownStaff } = await getServiceClient()
-    .from("clinic_staff").select("user_id").eq("auth_user_id", user.id).maybeSingle()
-  const ownerId = ownStaff?.user_id || user.id
+  const { supabase, ownerId } = result as any
 
   const { data, error } = await supabase
     .from("clinic_staff")
@@ -29,9 +25,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, user, ownerId } = result as any
 
   const body = await request.json()
   const { full_name, role, specialty, email, phone, access_role } = body
@@ -88,7 +84,7 @@ export async function POST(request: Request) {
       access_role: access_role || "dentista",
       auth_user_id,
       invite_sent_at,
-      user_id: user.id,
+      user_id: ownerId,
     })
     .select()
     .single()
@@ -98,9 +94,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const body = await request.json()
   const { id, ...updates } = body
@@ -109,7 +105,7 @@ export async function PUT(request: Request) {
     .from("clinic_staff")
     .update(updates)
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .select()
     .single()
 
@@ -118,9 +114,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const result = await getAuthenticatedClient()
+  const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user } = result as any
+  const { supabase, ownerId } = result as any
 
   const { searchParams } = new URL(request.url)
   const id = searchParams.get("id")
@@ -130,7 +126,7 @@ export async function DELETE(request: Request) {
     .from("clinic_staff")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })

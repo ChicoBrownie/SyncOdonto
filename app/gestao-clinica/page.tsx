@@ -18,18 +18,6 @@ export default function ClinicManagementPage() {
 
       if (!user) { router.push("/auth/login"); return }
 
-      // Verifica se é funcionário com restrição
-      const { data: staff } = await supabase
-        .from("clinic_staff")
-        .select("access_role")
-        .eq("auth_user_id", user.id)
-        .maybeSingle()
-      // Se for funcionário e não for gestor, bloqueia
-      if (staff && staff.access_role !== "gestor") {
-        router.push("/dashboard")
-        return
-      }
-
       setAllowed(true)
     }
     check()
