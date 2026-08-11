@@ -91,7 +91,6 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
   }
 
   const handleSave = async () => {
-    // Apenas nome completo, CPF e data de nascimento são obrigatórios
     if (!form.full_name.trim()) {
       toast.error("Nome completo é obrigatório.")
       return
@@ -109,7 +108,6 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
     try {
       const payload: any = { ...form }
 
-      // Converte campos vazios em null (exceto os obrigatórios)
       for (const key of Object.keys(payload)) {
         if (typeof payload[key] === "string" && payload[key].trim() === "") {
           if (!["full_name", "cpf", "date_of_birth"].includes(key)) {
@@ -212,7 +210,7 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
 
         {/* Modal cadastro/edição */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-[calc(100vw-2rem)] sm:w-full sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingPatient ? "Editar Paciente" : "Cadastrar Novo Paciente"}</DialogTitle>
               <DialogDescription>
@@ -230,7 +228,7 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
               </div>
 
               {/* Email e Telefone — opcionais */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="email">Email</Label>
                   <Input id="email" type="email" value={form.email}
@@ -249,7 +247,7 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
               </div>
 
               {/* Data nascimento e gênero */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="date_of_birth">Data de Nascimento *</Label>
                   <Input id="date_of_birth" type="date" value={form.date_of_birth}
@@ -472,4 +470,3 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
     </Card>
   )
 }
-

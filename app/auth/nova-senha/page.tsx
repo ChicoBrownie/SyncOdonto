@@ -19,6 +19,7 @@ function NovaSenhaForm() {
   const [error, setError] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
   const [isInvite, setIsInvite] = useState(false)
+  const [isForced, setIsForced] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -27,23 +28,23 @@ function NovaSenhaForm() {
     const type = searchParams.get('type')
     const token_hash = searchParams.get('token_hash')
 
+    if (type === 'force') setIsForced(true)
     if (type === 'invite') setIsInvite(true)
 
-    // Troca o token_hash por sessão
-    if (token_hash && type) {
+    if (token_hash && type === 'invite') {
       supabase.auth.verifyOtp({ token_hash, type: 'invite' }).then(({ data, error }) => {
         if (!error && data.user) {
-          const name = data.user.user_metadata?.full_name || null
-          setUserName(name)
+          setUserName(data.user.user_metadata?.full_name || null)
           setIsInvite(true)
         }
       })
     } else {
       supabase.auth.getUser().then(({ data }) => {
         if (data.user) {
-          const name = data.user.user_metadata?.full_name || null
-          setUserName(name)
-          if (data.user.user_metadata?.access_role) setIsInvite(true)
+          setUserName(data.user.user_metadata?.full_name || null)
+          if (type !== 'force' && data.user.user_metadata?.access_role) {
+            setIsInvite(true)
+          }
         }
       })
     }
@@ -67,7 +68,10 @@ function NovaSenhaForm() {
 
     try {
       const supabase = createClient()
-      const { error } = await supabase.auth.updateUser({ password })
+      const { error } = await supabase.auth.updateUser({
+        password,
+        data: { must_change_password: false },
+      })
 
       if (error) {
         setError('Erro ao definir senha. O link pode ter expirado. Solicite um novo.')
@@ -97,11 +101,13 @@ function NovaSenhaForm() {
           <Card>
             <CardHeader>
               <CardTitle className="text-2xl">
-                {isInvite ? "Bem-vindo ao SyncOdonto! 👋" : "Nova senha"}
+                {isForced ? "Defina sua senha" : isInvite ? "Bem-vindo ao SyncOdonto! 👋" : "Nova senha"}
               </CardTitle>
               <CardDescription>
                 {done
                   ? "Senha definida com sucesso!"
+                  : isForced
+                  ? "Por segurança, você precisa criar uma nova senha antes de continuar."
                   : isInvite && userName
                   ? `Olá, ${userName.split(" ")[0]}! Crie sua senha para acessar o sistema.`
                   : isInvite
@@ -114,16 +120,15 @@ function NovaSenhaForm() {
                 <div className="flex flex-col items-center gap-4 py-4 text-center">
                   <CheckCircle className="h-12 w-12 text-teal-600" />
                   <p className="text-sm text-muted-foreground">
-                    {isInvite ? "Conta ativada! Redirecionando para o sistema..." : "Senha alterada! Redirecionando..."}
+                    {isInvite || isForced ? "Conta ativada! Redirecionando para o sistema..." : "Senha alterada! Redirecionando..."}
                   </p>
                 </div>
               ) : (
                 <form onSubmit={handleSubmit}>
                   <div className="flex flex-col gap-5">
-                    {/* Campo senha */}
                     <div className="grid gap-2">
                       <Label htmlFor="password">
-                        {isInvite ? "Criar senha" : "Nova senha"}
+                        {isInvite || isForced ? "Criar senha" : "Nova senha"}
                       </Label>
                       <div className="relative">
                         <Input
@@ -146,7 +151,6 @@ function NovaSenhaForm() {
                       </div>
                     </div>
 
-                    {/* Campo confirmar senha */}
                     <div className="grid gap-2">
                       <Label htmlFor="confirm">Confirmar senha</Label>
                       <div className="relative">
@@ -194,6 +198,8 @@ function NovaSenhaForm() {
                     >
                       {isLoading
                         ? "Salvando..."
+                        : isForced
+                        ? "Confirmar nova senha"
                         : isInvite
                         ? "Ativar minha conta"
                         : "Salvar nova senha"}

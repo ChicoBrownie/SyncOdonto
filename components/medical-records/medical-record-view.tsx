@@ -16,11 +16,13 @@ import {
 } from "@/components/ui/select"
 import {
   Phone, Mail, Calendar, User, ArrowLeft, FileText,
-  MapPin, TrendingUp, Brain, Loader2, AlertCircle, Check, Stethoscope,
+  MapPin, TrendingUp, Brain, Loader2, AlertCircle, Check, Stethoscope, Printer,
 } from "lucide-react"
 import { AttachedExams } from "./attached-exams"
 import { ClinicalHistory } from "./clinical-history"
 import { MedicalInformation } from "./medical-information"
+import { AnamnesisSection } from "./anamnesis-section"
+import { PrintableRecord } from "./printable-record"
 import { DentalChartView } from "@/components/dental-chart/dental-chart-view"
 import { CariesIndexChart } from "@/components/progress/caries-index-chart"
 import { PeriodontalHealthChart } from "@/components/progress/periodontal-health-chart"
@@ -31,7 +33,16 @@ import useSWR from "swr"
 import Link from "next/link"
 import { toast } from "sonner"
 
-const fetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data || [])
+// Fetcher que já devolve o array pronto — usado só pra endpoints que NÃO
+// são consumidos por nenhum outro componente na mesma tela (evita conflito de cache do SWR).
+const listFetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.data || [])
+
+// Fetcher "cru" — devolve o JSON exatamente como a API manda ({ data: [...] }).
+// Precisa ser esse mesmo formato aqui porque /api/anamnesis, /api/medical-records e
+// /api/documents também são chamados dentro de AnamnesisSection, ClinicalHistory e
+// AttachedExams com a MESMA URL. O SWR compartilha cache por URL — se os fetchers
+// devolvessem formatos diferentes pra mesma chave, um dos dois lados quebra.
+const rawFetcher = (url: string) => fetch(url).then(r => r.json())
 
 const PAYMENT_METHODS = ["Espécie", "Cartão Débito", "Cartão Crédito", "Pix"]
 
@@ -41,11 +52,21 @@ interface MedicalRecordViewProps {
 
 export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
   const { patient, isLoading } = usePatient(patientId)
-  const { data: treatments } = useSWR(`/api/treatments?patient_id=${patientId}`, fetcher)
+  const { data: treatments } = useSWR(`/api/treatments?patient_id=${patientId}`, listFetcher)
   const { data: appointments, mutate: mutateAppointments } = useSWR(
     `/api/appointments?patient_id=${patientId}`,
-    fetcher
+    listFetcher
   )
+
+  // Mesmas URLs que AnamnesisSection / ClinicalHistory / AttachedExams usam internamente —
+  // por isso o rawFetcher, e o unwrap de ".data" é feito aqui embaixo manualmente.
+  const { data: anamnesesRes } = useSWR(`/api/anamnesis?patientId=${patientId}`, rawFetcher)
+  const { data: clinicalRecordsRes } = useSWR(`/api/medical-records?patientId=${patientId}`, rawFetcher)
+  const { data: examsRes } = useSWR(`/api/documents?patient_id=${patientId}&document_type=exam`, rawFetcher)
+
+  const anamneses = Array.isArray(anamnesesRes?.data) ? anamnesesRes.data : []
+  const clinicalRecords = Array.isArray(clinicalRecordsRes?.data) ? clinicalRecordsRes.data : []
+  const exams = Array.isArray(examsRes?.data) ? examsRes.data : []
 
   // Consulta "Em Andamento" deste paciente
   const activeAppointment = appointments?.find((a: any) => a.status === "Em Andamento") ?? null
@@ -222,7 +243,7 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
 
       {/* ── Modal de encerramento ─────────────────────────────────────────── */}
       <Dialog open={closeOpen} onOpenChange={(open) => { if (!open) { setCloseOpen(false); setCloseModalError(null) } }}>
-        <DialogContent className="sm:max-w-[420px]">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:w-full sm:max-w-[420px]">
           <DialogHeader>
             <DialogTitle>Encerrar consulta</DialogTitle>
             <DialogDescription>
@@ -296,11 +317,11 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
                 <div className="flex items-center gap-3">
                   <h2 className="text-2xl font-semibold text-foreground">{patient.full_name}</h2>
                   <Badge
-                    variant={patient.status === "Ativo" ? "default" : "secondary"}
+                    variant={(patient.status as string) === "Ativo" ? "default" : "secondary"}
                     className={
-                      patient.status === "Ativo"
+                      (patient.status as string) === "Ativo"
                         ? "bg-success/10 text-success"
-                        : patient.status === "Em Tratamento"
+                        : (patient.status as string) === "Em Tratamento"
                           ? "bg-blue-500/10 text-blue-600"
                           : ""
                     }
@@ -334,6 +355,14 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
               </div>
             </div>
             <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="gap-2 bg-transparent"
+                onClick={() => window.print()}
+              >
+                <Printer className="h-4 w-4" />
+                <span className="hidden sm:inline">Imprimir Prontuário</span>
+              </Button>
               <Link href="/pacientes">
                 <Button variant="outline" className="bg-transparent">Voltar</Button>
               </Link>
@@ -368,6 +397,7 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
             <MedicalInformation patientId={patientId} />
             <AttachedExams patientId={patientId} />
           </div>
+          <AnamnesisSection patientId={patientId} />
           <ClinicalHistory patientId={patientId} />
         </TabsContent>
 
@@ -414,6 +444,14 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
           <PatientAIAnalysis patientId={patientId} />
         </TabsContent>
       </Tabs>
+
+      <PrintableRecord
+        patient={patient}
+        age={age}
+        anamneses={anamneses}
+        clinicalRecords={clinicalRecords}
+        exams={exams}
+      />
     </div>
   )
 }
