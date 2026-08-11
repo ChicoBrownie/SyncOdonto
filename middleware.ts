@@ -1,6 +1,5 @@
 import { updateSession } from '@/lib/supabase/middleware'
-import { createServerClient } from '@supabase/ssr'
-import { type NextRequest, NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 
 const GESTOR_ONLY = [
   "/relatorios/financeiro",
@@ -8,61 +7,46 @@ const GESTOR_ONLY = [
 ]
 
 export async function middleware(request: NextRequest) {
-  const response = await updateSession(request)
   const { pathname } = request.nextUrl
+  const { supabaseResponse, user, supabase } = await updateSession(request)
 
-  // Rotas públicas — deixa passar
+  // Rotas públicas — deixa passar como updateSession já resolveu
   if (
     pathname.startsWith('/auth') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
     pathname === '/favicon.ico'
   ) {
-    return response
+    return supabaseResponse
   }
 
-  // Se não é rota restrita, deixa passar
+  // updateSession já redireciona pra /auth/login quando não há usuário
+  if (!user || !supabase) {
+    return supabaseResponse
+  }
+
+  // Senha provisória pendente — obriga trocar antes de acessar qualquer rota
+  if (user.user_metadata?.must_change_password) {
+    return NextResponse.redirect(new URL('/auth/nova-senha?type=force', request.url))
+  }
+
+  // Rotas restritas a gestor
   const isGestorOnly = GESTOR_ONLY.some(route => pathname.startsWith(route))
-  if (!isGestorOnly) return response
+  if (!isGestorOnly) return supabaseResponse
 
-  // Cria cliente para verificar sessão e perfil
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll() },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
-
-  // Pega usuário logado
-  const { data: authData } = await supabase.auth.getUser()
-  const user = authData?.user
-
-  // Não logado — redireciona para login
-  if (!user) {
-    return NextResponse.redirect(new URL('/auth/login', request.url))
-  }
-
-  // Verifica perfil na tabela clinic_staff
+  // Reaproveita o MESMO client (mesma sessão/cookies) já autenticado por
+  // updateSession — não cria um segundo client nem chama getUser() de novo.
   const { data: staffRecord } = await supabase
     .from('clinic_staff')
     .select('access_role')
     .eq('auth_user_id', user.id)
     .maybeSingle()
 
-  // Se for funcionário sem permissão de gestor, bloqueia
   if (staffRecord && staffRecord.access_role !== 'gestor') {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
-  return response
+  return supabaseResponse
 }
 
 export const config = {

@@ -133,3 +133,22 @@
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-record,
+  #printable-record * {
+    visibility: visible;
+  }
+  #printable-record {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+  @page {
+    margin: 1.5cm;
+  }
+}

@@ -1,6 +1,8 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 
+const TABLE_NAME = "anamnesis_records"
+
 export async function GET(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
@@ -9,16 +11,17 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const patientId = searchParams.get("patientId")
 
-  if (!patientId) {
-    return NextResponse.json({ error: "Patient ID is required" }, { status: 400 })
-  }
-
-  const { data, error } = await supabase
-    .from("dental_charts")
+  let query = supabase
+    .from(TABLE_NAME)
     .select("*")
     .eq("user_id", ownerId)
-    .eq("patient_id", patientId)
-    .order("tooth_number", { ascending: true })
+    .order("created_at", { ascending: false })
+
+  if (patientId) {
+    query = query.eq("patient_id", patientId)
+  }
+
+  const { data, error } = await query
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -34,22 +37,9 @@ export async function POST(request: Request) {
 
   const body = await request.json()
 
-  if (!body.patient_id || body.tooth_number === undefined || body.tooth_number === null || !body.condition) {
-    return NextResponse.json({ error: "Dados incompletos para salvar o dente" }, { status: 400 })
-  }
-
   const { data, error } = await supabase
-    .from("dental_charts")
-    .upsert(
-      {
-        user_id: ownerId,
-        patient_id: body.patient_id,
-        tooth_number: body.tooth_number,
-        condition: body.condition,
-        notes: body.notes ?? null,
-      },
-      { onConflict: "user_id,patient_id,tooth_number" },
-    )
+    .from(TABLE_NAME)
+    .insert({ ...body, user_id: ownerId })
     .select()
     .single()
 
@@ -66,23 +56,16 @@ export async function DELETE(request: Request) {
   const { supabase, ownerId } = result as any
 
   const { searchParams } = new URL(request.url)
-  const patientId = searchParams.get("patientId")
-  const toothNumber = searchParams.get("toothNumber")
+  const id = searchParams.get("id")
 
-  if (!patientId || !toothNumber) {
-    return NextResponse.json({ error: "patientId e toothNumber são obrigatórios" }, { status: 400 })
-  }
+  if (!id) return NextResponse.json({ error: "ID obrigatorio" }, { status: 400 })
 
   const { error } = await supabase
-    .from("dental_charts")
+    .from(TABLE_NAME)
     .delete()
+    .eq("id", id)
     .eq("user_id", ownerId)
-    .eq("patient_id", patientId)
-    .eq("tooth_number", Number(toothNumber))
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })
 }

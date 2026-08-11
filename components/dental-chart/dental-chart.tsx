@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
+import { Check } from "lucide-react"
 
 export type ToothCondition = "Saudável" | "Restaurado" | "Atenção/Cárie" | "Tratamento Canal" | "Sem Registros" | "Ausente" | "Implante"
 
@@ -16,18 +17,54 @@ export const CONDITIONS: { value: ToothCondition; label: string; color: string; 
   { value: "Implante", label: "Implante", color: "bg-violet-500 hover:bg-violet-400/80 border-violet-500", dotColor: "bg-violet-500" },
 ]
 
+// Traduz o valor exibido no front (português) para o valor aceito pela
+// CHECK constraint da tabela dental_charts no Supabase (inglês).
+// null = não existe linha no banco para essa condição; DELETE em vez de upsert.
+export const CONDITION_TO_DB: Record<ToothCondition, string | null> = {
+  "Sem Registros": null,
+  "Saudável": "healthy",
+  "Restaurado": "filled",
+  "Atenção/Cárie": "caries",
+  "Tratamento Canal": "root_canal",
+  "Ausente": "absent",
+  "Implante": "implant",
+}
+
+// Sentido inverso: valor salvo no banco -> valor exibido no front.
+// Os valores da constraint que não têm equivalente na UI hoje
+// (extracted, crown, bridge, fracture) ficam de fora e são ignorados na leitura.
+export const DB_TO_CONDITION: Record<string, ToothCondition> = {
+  healthy: "Saudável",
+  filled: "Restaurado",
+  caries: "Atenção/Cárie",
+  root_canal: "Tratamento Canal",
+  absent: "Ausente",
+  implant: "Implante",
+}
+
 interface DentalChartProps {
   selectedTooth: number | null
   onToothSelect: (tooth: number) => void
   toothData: Record<number, ToothCondition>
   onConditionChange: (tooth: number, condition: ToothCondition) => void
+  multiSelectMode?: boolean
+  selectedTeeth?: Set<number>
+  onToggleToothSelection?: (tooth: number) => void
 }
 
 const getToothColor = (condition: ToothCondition) => {
   return CONDITIONS.find(c => c.value === condition)?.color || CONDITIONS[0].color
 }
 
-export function DentalChart({ selectedTooth, onToothSelect, toothData, onConditionChange }: DentalChartProps) {
+export function DentalChart({
+  selectedTooth,
+  onToothSelect,
+  toothData,
+  onConditionChange,
+  multiSelectMode = false,
+  selectedTeeth,
+  onToggleToothSelection,
+}: DentalChartProps) {
   const upperTeeth = [
     [18, 17, 16, 15, 14, 13, 12, 11],
     [21, 22, 23, 24, 25, 26, 27, 28],
@@ -39,31 +76,50 @@ export function DentalChart({ selectedTooth, onToothSelect, toothData, onConditi
   ]
 
   const renderTooth = (toothNumber: number) => {
-    const condition = toothData[toothNumber] || "none"
+    const condition: ToothCondition = toothData[toothNumber] || "Sem Registros"
+    const isEmpty = condition === "Sem Registros"
     const isSelected = selectedTooth === toothNumber
-    const isMissing = condition === "missing"
+    const isMissing = condition === "Ausente"
+    const isChecked = selectedTeeth?.has(toothNumber) ?? false
+
+    const toothButton = (
+      <button
+        onClick={() => {
+          if (multiSelectMode) {
+            onToggleToothSelection?.(toothNumber)
+          } else {
+            onToothSelect(toothNumber)
+          }
+        }}
+        className={cn(
+          "relative flex h-11 w-11 sm:h-13 sm:w-13 items-center justify-center rounded-lg border-2 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/50",
+          isSelected && !multiSelectMode && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+          isChecked && multiSelectMode && "ring-2 ring-primary ring-offset-2 ring-offset-background scale-105",
+          isMissing && "opacity-50 line-through",
+          getToothColor(condition),
+        )}
+      >
+        {isChecked && multiSelectMode && (
+          <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <Check className="h-2.5 w-2.5" />
+          </span>
+        )}
+        <span className={cn(
+          "text-xs font-bold",
+          isEmpty ? "text-muted-foreground" : "text-foreground",
+        )}>
+          {toothNumber}
+        </span>
+      </button>
+    )
+
+    if (multiSelectMode) {
+      return <div key={toothNumber}>{toothButton}</div>
+    }
 
     return (
       <Popover key={toothNumber}>
-        <PopoverTrigger asChild>
-          <button
-            onClick={() => onToothSelect(toothNumber)}
-            className={cn(
-              "relative flex h-11 w-11 sm:h-13 sm:w-13 items-center justify-center rounded-lg border-2 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/50",
-              isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-background",
-              isMissing && "opacity-50 line-through",
-              getToothColor(condition),
-            )}
-          >
-            <span className={cn(
-              "text-xs font-bold",
-              condition === "none" ? "text-muted-foreground" : "text-foreground",
-              isSelected && "text-foreground",
-            )}>
-              {toothNumber}
-            </span>
-          </button>
-        </PopoverTrigger>
+        <PopoverTrigger asChild>{toothButton}</PopoverTrigger>
         <PopoverContent className="w-52 p-2" align="center" side="bottom">
           <p className="text-xs font-semibold text-foreground mb-2 px-1">Dente {toothNumber}</p>
           <div className="flex flex-col gap-0.5">
@@ -90,7 +146,6 @@ export function DentalChart({ selectedTooth, onToothSelect, toothData, onConditi
 
   return (
     <div className="space-y-6">
-      {/* Upper Teeth */}
       <div>
         <div className="mb-3 text-center">
           <span className="text-sm font-medium text-muted-foreground">Arcada Superior</span>
@@ -103,7 +158,6 @@ export function DentalChart({ selectedTooth, onToothSelect, toothData, onConditi
 
       <div className="h-px bg-border" />
 
-      {/* Lower Teeth */}
       <div>
         <div className="flex justify-center gap-6 sm:gap-8">
           <div className="flex gap-1 sm:gap-1.5">{lowerTeeth[0].map(renderTooth)}</div>

@@ -130,6 +130,7 @@ export function AgendaView() {
   const isPastDate = dateString < todayString
 
   const { appointments, isLoading, error, mutate } = useAppointments({ date: dateString })
+  const appointmentsList: any[] = (appointments as any[]) || []
 
   const weekDays = getWeekDays(selectedDate)
   const weekStart = toLocalDateString(weekDays[0])
@@ -295,10 +296,18 @@ export function AgendaView() {
     return <Badge className={map[status] || ""}>{status}</Badge>
   }
 
-  const confirmedCount = appointments?.filter(a => a.status === "Confirmada" || a.status === "Concluída" || a.status === "Em Andamento").length || 0
-  const pendingCount = appointments?.filter(a => a.status === "Pendente" || a.status === "Atrasado").length || 0
-  const cancelledCount = appointments?.filter(a => a.status === "Cancelada" || a.status === "Falta").length || 0
-  const occupancyRate = appointments ? Math.round((appointments.length / 8) * 100) : 0
+  // Comparações tipadas como string explicitamente — o tipo do banco vem em inglês
+  // ("active"/"inactive" etc.) mas o app inteiro usa rótulos em português.
+  const confirmedCount = appointmentsList.filter(a =>
+    (a.status as string) === "Confirmada" || (a.status as string) === "Concluída" || (a.status as string) === "Em Andamento"
+  ).length
+  const pendingCount = appointmentsList.filter(a =>
+    (a.status as string) === "Pendente" || (a.status as string) === "Atrasado"
+  ).length
+  const cancelledCount = appointmentsList.filter(a =>
+    (a.status as string) === "Cancelada" || (a.status as string) === "Falta"
+  ).length
+  const occupancyRate = appointmentsList.length ? Math.round((appointmentsList.length / 8) * 100) : 0
   const occupancyWidth = Math.min(occupancyRate, 100)
 
   const navTitle = viewMode === "day"
@@ -396,14 +405,13 @@ export function AgendaView() {
     )
   }
 
-  // ── TABELA DE CONSULTAS ────────────────────────────────────────────────────
-  const AppointmentRow = ({ appointment }: { appointment: any }) => {
+  // ── Status/ação de uma consulta — usado tanto na linha da tabela quanto no card mobile ──
+  const useAppointmentState = (appointment: any) => {
     const isActiveStatus = appointment.status === "Pendente" || appointment.status === "Confirmada" || appointment.status === "Atrasado"
     const timeStatus = isActiveStatus
       ? getAppointmentTimeStatus(appointment.date, appointment.time, closingHour)
       : "ok"
 
-    // Auto-atrasado
     const currentStatus = timeStatus === "late" && appointment.status !== "Atrasado" && isActiveStatus
       ? "Atrasado"
       : appointment.status
@@ -412,85 +420,126 @@ export function AgendaView() {
       handleUpdateStatus(appointment.id, "Atrasado")
     }
 
-    const rowBg = timeStatus === "late" || currentStatus === "Atrasado"
-      ? "bg-yellow-50 dark:bg-yellow-950/20"
-      : ""
-
-    const canStart = !["Concluída","Cancelada","Falta","Em Andamento"].includes(appointment.status)
-
+    const canStart = !["Concluída", "Cancelada", "Falta", "Em Andamento"].includes(appointment.status)
     const canCancel = appointment.status !== "Concluída" &&
       appointment.status !== "Cancelada" &&
       appointment.status !== "Falta"
+    const isLate = timeStatus === "late" || currentStatus === "Atrasado"
+
+    return { currentStatus, canStart, canCancel, isLate }
+  }
+
+  const StatusSelector = ({ appointment }: { appointment: any }) => {
+    const { canCancel } = useAppointmentState(appointment)
+    if (["Concluída", "Cancelada", "Falta"].includes(appointment.status)) {
+      return <div className="py-1">{getStatusBadge(appointment.status)}</div>
+    }
+    return (
+      <Select
+        value={appointment.status}
+        onValueChange={(val) => {
+          if (val === "Cancelada") {
+            openCancelModal(appointment.id, appointment.patient?.full_name || "Paciente")
+          } else {
+            handleUpdateStatus(appointment.id, val)
+          }
+        }}
+      >
+        <SelectTrigger className="h-7 w-36 text-xs border-0 bg-transparent p-0 shadow-none focus:ring-0">
+          <SelectValue>{getStatusBadge(appointment.status)}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {STATUS_OPTIONS.filter(o => {
+            if (o.value === "Cancelada") return canCancel
+            return true
+          }).map(o => (
+            <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    )
+  }
+
+  const AppointmentActionButton = ({ appointment }: { appointment: any }) => {
+    const { canStart } = useAppointmentState(appointment)
+    return (
+      <>
+        {canStart && (
+          <Button size="sm" onClick={() => handleIniciar(appointment)}>
+            Iniciar
+          </Button>
+        )}
+        {appointment.status === "Em Andamento" && (
+          <div className="flex items-center gap-2">
+            <Badge className="bg-yellow-100 text-yellow-800 animate-pulse text-xs">Em atendimento</Badge>
+            <Button size="sm" className="bg-success text-white hover:bg-success/90"
+              onClick={() => handleUpdateStatus(appointment.id, "Concluída")}>
+              Encerrar
+            </Button>
+          </div>
+        )}
+        {appointment.status === "Concluída" && <Badge className="bg-gray-100 text-gray-800">Encerrado</Badge>}
+        {appointment.status === "Cancelada" && <Badge className="bg-red-100 text-red-800">Cancelada</Badge>}
+        {appointment.status === "Falta" && <Badge className="bg-orange-100 text-orange-800">Falta</Badge>}
+      </>
+    )
+  }
+
+  // ── LINHA DE TABELA (desktop) ─────────────────────────────────────────────
+  const AppointmentRow = ({ appointment }: { appointment: any }) => {
+    const { isLate } = useAppointmentState(appointment)
+    const rowBg = isLate ? "bg-yellow-50 dark:bg-yellow-950/20" : ""
 
     return (
       <tr className={`border-b border-border transition-colors ${rowBg}`}>
-        {/* Horário */}
         <td className="py-3 px-4 text-sm font-medium text-foreground whitespace-nowrap">
           <div className="flex items-center gap-1">
             {formatTime(appointment.time)}
-            {(timeStatus === "late" || currentStatus === "Atrasado") && (
-              <AlertTriangle className="h-3 w-3 text-yellow-600" />
-            )}
+            {isLate && <AlertTriangle className="h-3 w-3 text-yellow-600" />}
           </div>
         </td>
-        {/* Paciente */}
         <td className="py-3 px-4 text-sm text-foreground">
           {appointment.patient?.full_name || "—"}
         </td>
-        {/* Profissional */}
         <td className="py-3 px-4 text-sm text-muted-foreground">
           {appointment.doctor_name ? `Dr(a). ${appointment.doctor_name}` : "—"}
         </td>
-        {/* Status — travado após encerramento */}
         <td className="py-3 px-4">
-          {["Concluída", "Cancelada", "Falta"].includes(appointment.status) ? (
-            <div className="py-1">{getStatusBadge(appointment.status)}</div>
-          ) : (
-            <Select
-              value={appointment.status}
-              onValueChange={(val) => {
-                if (val === "Cancelada") {
-                  openCancelModal(appointment.id, appointment.patient?.full_name || "Paciente")
-                } else {
-                  handleUpdateStatus(appointment.id, val)
-                }
-              }}
-            >
-              <SelectTrigger className="h-7 w-36 text-xs border-0 bg-transparent p-0 shadow-none focus:ring-0">
-                <SelectValue>{getStatusBadge(appointment.status)}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_OPTIONS.filter(o => {
-                  if (o.value === "Cancelada") return canCancel
-                  return true
-                }).map(o => (
-                  <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          <StatusSelector appointment={appointment} />
         </td>
-        {/* Ação */}
         <td className="py-3 px-4 text-right">
-          {canStart && (
-            <Button size="sm" onClick={() => handleIniciar(appointment)}>
-              Iniciar
-            </Button>
-          )}
-          {appointment.status === "Em Andamento" && (
-            <div className="flex items-center justify-end gap-2">
-              <Badge className="bg-yellow-100 text-yellow-800 animate-pulse text-xs">Em atendimento</Badge>
-              <Button size="sm" className="bg-success text-white hover:bg-success/90"
-                onClick={() => handleUpdateStatus(appointment.id, "Concluída")}>
-                Encerrar
-              </Button>
-            </div>
-          )}
-          {appointment.status === "Concluída" && <Badge className="bg-gray-100 text-gray-800">Encerrado</Badge>}
-          {appointment.status === "Cancelada" && <Badge className="bg-red-100 text-red-800">Cancelada</Badge>}
-          {appointment.status === "Falta" && <Badge className="bg-orange-100 text-orange-800">Falta</Badge>}
+          <div className="flex items-center justify-end gap-2">
+            <AppointmentActionButton appointment={appointment} />
+          </div>
         </td>
       </tr>
+    )
+  }
+
+  // ── CARD (mobile) ──────────────────────────────────────────────────────────
+  const AppointmentCard = ({ appointment }: { appointment: any }) => {
+    const { isLate } = useAppointmentState(appointment)
+    return (
+      <Card className={isLate ? "border-yellow-300 bg-yellow-50 dark:bg-yellow-950/20" : ""}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-base font-semibold text-foreground">{formatTime(appointment.time)}</span>
+                {isLate && <AlertTriangle className="h-3.5 w-3.5 text-yellow-600" />}
+              </div>
+              <p className="text-sm text-foreground mt-0.5">{appointment.patient?.full_name || "—"}</p>
+              <p className="text-xs text-muted-foreground">
+                {appointment.doctor_name ? `Dr(a). ${appointment.doctor_name}` : "—"}
+              </p>
+            </div>
+            <StatusSelector appointment={appointment} />
+          </div>
+          <div className="flex justify-end gap-2 pt-1 border-t border-border">
+            <AppointmentActionButton appointment={appointment} />
+          </div>
+        </CardContent>
+      </Card>
     )
   }
 
@@ -504,107 +553,111 @@ export function AgendaView() {
       {/* Navegação */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
-              <Button variant="outline" size="icon" className="bg-transparent" onClick={() => navigateDate("prev")}>
+              <Button variant="outline" size="icon" className="bg-transparent shrink-0" onClick={() => navigateDate("prev")}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-primary" />
-                <span className="text-base font-semibold text-foreground capitalize">{navTitle}</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <Calendar className="h-5 w-5 text-primary shrink-0" />
+                <span className="text-sm sm:text-base font-semibold text-foreground capitalize truncate">{navTitle}</span>
               </div>
-              <Button variant="outline" size="icon" className="bg-transparent" onClick={() => navigateDate("next")}>
+              <Button variant="outline" size="icon" className="bg-transparent shrink-0" onClick={() => navigateDate("next")}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
-            <div className="flex gap-2">
-              {(["day", "week", "month"] as const).map((mode) => (
-                <Button key={mode} variant={viewMode === mode ? "default" : "outline"} size="sm"
-                  onClick={() => setViewMode(mode)} className={viewMode !== mode ? "bg-transparent" : ""}>
-                  {mode === "day" ? "Dia" : mode === "week" ? "Semana" : "Mês"}
-                </Button>
-              ))}
-            </div>
-            <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm() }}>
-              <DialogTrigger asChild>
-                <Button className="gap-2" disabled={isPastDate && viewMode === "day"}>
-                  <Plus className="h-4 w-4" />Novo Agendamento
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                  <DialogTitle>Novo Agendamento</DialogTitle>
-                  <DialogDescription>Agende uma nova consulta para {formatDisplayDate(selectedDate)}</DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  {formError && (
-                    <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{formError}</span>
-                    </div>
-                  )}
-                  <div className="grid gap-2">
-                    <Label>Paciente *</Label>
-                    <Select value={newAppointment.patient_id} onValueChange={(v) => setNewAppointment({ ...newAppointment, patient_id: v })}>
-                      <SelectTrigger><SelectValue placeholder="Selecione um paciente" /></SelectTrigger>
-                      <SelectContent>{patients?.map(p => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Procedimento *</Label>
-                    <Select value={newAppointment.procedure_type} onValueChange={(v) => setNewAppointment({ ...newAppointment, procedure_type: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {["Consulta","Limpeza","Tratamento","Cirurgia","Emergencia","Retorno"].map(p => (
-                          <SelectItem key={p} value={p}>{p}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex gap-2">
+                {(["day", "week", "month"] as const).map((mode) => (
+                  <Button key={mode} variant={viewMode === mode ? "default" : "outline"} size="sm"
+                    onClick={() => setViewMode(mode)} className={viewMode !== mode ? "bg-transparent" : ""}>
+                    {mode === "day" ? "Dia" : mode === "week" ? "Semana" : "Mês"}
+                  </Button>
+                ))}
+              </div>
+              <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm() }}>
+                <DialogTrigger asChild>
+                  <Button className="gap-2" disabled={isPastDate && viewMode === "day"}>
+                    <Plus className="h-4 w-4" />
+                    <span className="hidden sm:inline">Novo Agendamento</span>
+                    <span className="sm:hidden">Novo</span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="w-[calc(100vw-2rem)] sm:w-full sm:max-w-[500px]">
+                  <DialogHeader>
+                    <DialogTitle>Novo Agendamento</DialogTitle>
+                    <DialogDescription>Agende uma nova consulta para {formatDisplayDate(selectedDate)}</DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    {formError && (
+                      <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{formError}</span>
+                      </div>
+                    )}
                     <div className="grid gap-2">
-                      <Label>Horário *</Label>
-                      <Input type="time" value={newAppointment.time}
-                        min={dateString === todayString ? getCurrentTimeString() : undefined}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })} />
+                      <Label>Paciente *</Label>
+                      <Select value={newAppointment.patient_id} onValueChange={(v) => setNewAppointment({ ...newAppointment, patient_id: v })}>
+                        <SelectTrigger><SelectValue placeholder="Selecione um paciente" /></SelectTrigger>
+                        <SelectContent>{patients?.map(p => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}</SelectContent>
+                      </Select>
                     </div>
                     <div className="grid gap-2">
-                      <Label>Duração (min)</Label>
-                      <Input type="number" min={1} value={newAppointment.duration_minutes}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, duration_minutes: Math.max(1, parseInt(e.target.value) || 60) })} />
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Dentista Responsável *</Label>
-                    {staff.length > 0 ? (
-                      <Select value={newAppointment.doctor_name} onValueChange={(v) => setNewAppointment({ ...newAppointment, doctor_name: v })}>
-                        <SelectTrigger><SelectValue placeholder="Selecione o dentista" /></SelectTrigger>
+                      <Label>Procedimento *</Label>
+                      <Select value={newAppointment.procedure_type} onValueChange={(v) => setNewAppointment({ ...newAppointment, procedure_type: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {staff.filter((s: any) => s.is_active).map((s: any) => (
-                            <SelectItem key={s.id} value={s.full_name}>{s.full_name} - {s.specialty || s.role}</SelectItem>
+                          {["Consulta","Limpeza","Tratamento","Cirurgia","Emergencia","Retorno"].map(p => (
+                            <SelectItem key={p} value={p}>{p}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                    ) : (
-                      <Input placeholder="Nome do dentista (obrigatório)" value={newAppointment.doctor_name}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, doctor_name: e.target.value })} />
-                    )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="grid gap-2">
+                        <Label>Horário *</Label>
+                        <Input type="time" value={newAppointment.time}
+                          min={dateString === todayString ? getCurrentTimeString() : undefined}
+                          onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })} />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Duração (min)</Label>
+                        <Input type="number" min={1} value={newAppointment.duration_minutes}
+                          onChange={(e) => setNewAppointment({ ...newAppointment, duration_minutes: Math.max(1, parseInt(e.target.value) || 60) })} />
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Dentista Responsável *</Label>
+                      {staff.length > 0 ? (
+                        <Select value={newAppointment.doctor_name} onValueChange={(v) => setNewAppointment({ ...newAppointment, doctor_name: v })}>
+                          <SelectTrigger><SelectValue placeholder="Selecione o dentista" /></SelectTrigger>
+                          <SelectContent>
+                            {staff.filter((s: any) => s.is_active).map((s: any) => (
+                              <SelectItem key={s.id} value={s.full_name}>{s.full_name} - {s.specialty || s.role}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input placeholder="Nome do dentista (obrigatório)" value={newAppointment.doctor_name}
+                          onChange={(e) => setNewAppointment({ ...newAppointment, doctor_name: e.target.value })} />
+                      )}
+                    </div>
                   </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => { setIsDialogOpen(false); resetForm() }}>Cancelar</Button>
-                  <Button onClick={handleCreateAppointment} disabled={isCreating}>
-                    {isCreating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Agendando...</> : "Agendar"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => { setIsDialogOpen(false); resetForm() }}>Cancelar</Button>
+                    <Button onClick={handleCreateAppointment} disabled={isCreating}>
+                      {isCreating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Agendando...</> : "Agendar"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Modal de cancelamento */}
       <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null) }}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent className="w-[calc(100vw-2rem)] sm:w-full sm:max-w-[400px]">
           {cancelStep === "confirm" ? (
             <>
               <DialogHeader>
@@ -675,7 +728,7 @@ export function AgendaView() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">Consultas do Dia</CardTitle>
                   <span className="text-sm text-muted-foreground">
-                    {isLoading ? "..." : `${appointments?.length || 0} agendamentos`}
+                    {isLoading ? "..." : `${appointmentsList.length} agendamentos`}
                   </span>
                 </div>
               </CardHeader>
@@ -684,8 +737,8 @@ export function AgendaView() {
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
-                ) : !appointments || appointments.length === 0 ? (
-                  <div className="text-center py-8">
+                ) : appointmentsList.length === 0 ? (
+                  <div className="text-center py-8 px-4">
                     <p className="text-muted-foreground">Nenhuma consulta agendada para este dia</p>
                     {!isPastDate && (
                       <Button className="mt-4 bg-transparent" variant="outline" onClick={() => setIsDialogOpen(true)}>
@@ -694,22 +747,30 @@ export function AgendaView() {
                     )}
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border bg-muted/50">
-                          <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Horário</th>
-                          <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Paciente</th>
-                          <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Profissional</th>
-                          <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Status</th>
-                          <th className="py-2 px-4 text-right text-xs font-medium text-muted-foreground"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {appointments.map(appt => <AppointmentRow key={appt.id} appointment={appt} />)}
-                      </tbody>
-                    </table>
-                  </div>
+                  <>
+                    {/* Tabela — desktop */}
+                    <div className="hidden lg:block overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/50">
+                            <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Horário</th>
+                            <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Paciente</th>
+                            <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Profissional</th>
+                            <th className="py-2 px-4 text-left text-xs font-medium text-muted-foreground">Status</th>
+                            <th className="py-2 px-4 text-right text-xs font-medium text-muted-foreground"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {appointmentsList.map(appt => <AppointmentRow key={appt.id} appointment={appt} />)}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Cards — mobile/tablet */}
+                    <div className="lg:hidden space-y-3 p-4">
+                      {appointmentsList.map(appt => <AppointmentCard key={appt.id} appointment={appt} />)}
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -735,7 +796,7 @@ export function AgendaView() {
                 <div className="pt-2 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Total de Consultas</span>
-                    <span className="text-sm font-semibold">{appointments?.length || 0}</span>
+                    <span className="text-sm font-semibold">{appointmentsList.length}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Confirmadas</span>
@@ -758,6 +819,3 @@ export function AgendaView() {
     </div>
   )
 }
-// Este arquivo é uma extensão do agenda-view.tsx existente
-// Substitua apenas o componente AppointmentRow pelo abaixo
-

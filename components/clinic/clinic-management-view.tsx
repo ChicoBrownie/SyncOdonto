@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import {
   Users, Calendar, TrendingUp, Clock, UserPlus, Trash2, Loader2, Edit, Mail, ShieldCheck,
+  Copy, Check, AlertTriangle, KeyRound,
 } from "lucide-react"
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -29,11 +30,21 @@ const ACCESS_ROLE_CONFIG: Record<string, { label: string; color: string }> = {
   recepcionista: { label: "Recepcionista", color: "bg-green-100 text-green-700" },
 }
 
+type CredentialsInfo = {
+  email: string
+  password: string
+  emailDelivered: boolean
+}
+
 export function ClinicManagementView() {
   const [activeTab, setActiveTab] = useState<"equipe" | "financeiro" | "configuracoes">("equipe")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [editingMember, setEditingMember] = useState<any>(null)
+
+  // Credenciais geradas na última criação de funcionário — exibidas em modal próprio
+  const [credentialsInfo, setCredentialsInfo] = useState<CredentialsInfo | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const { data: staffRes, mutate: mutateStaff } = useSWR("/api/clinic-staff", fetcher)
   const staff = staffRes?.data || []
@@ -152,8 +163,20 @@ export function ClinicManagementView() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Erro ao salvar")
 
-      if (data.invite_sent) {
-        toast.success(`Membro adicionado! Convite enviado para ${form.email}`)
+      // Se uma senha temporária foi gerada, mostra no modal de credenciais
+      // independente do e-mail ter sido entregue ou não.
+      if (data.temp_password) {
+        setCredentialsInfo({
+          email: form.email,
+          password: data.temp_password,
+          emailDelivered: !!data.email_delivered,
+        })
+        setCopied(false)
+        if (data.email_delivered) {
+          toast.success(`Membro adicionado! Convite enviado para ${form.email}`)
+        } else {
+          toast.warning("Membro adicionado, mas o e-mail de convite falhou. Copie a senha no modal.")
+        }
       } else {
         toast.success(editingMember ? "Membro atualizado!" : "Membro adicionado!")
       }
@@ -164,6 +187,18 @@ export function ClinicManagementView() {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar membro")
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleCopyPassword = async () => {
+    if (!credentialsInfo) return
+    try {
+      await navigator.clipboard.writeText(credentialsInfo.password)
+      setCopied(true)
+      toast.success("Senha copiada!")
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast.error("Não foi possível copiar. Selecione o texto manualmente.")
     }
   }
 
@@ -307,7 +342,7 @@ export function ClinicManagementView() {
                     </Label>
                     <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="email@clinica.com" />
                     {form.email && !editingMember && (
-                      <p className="text-xs text-emerald-600">✓ Um email de convite será enviado automaticamente.</p>
+                      <p className="text-xs text-emerald-600">✓ Uma senha provisória será gerada e um e-mail de convite será enviado automaticamente.</p>
                     )}
                   </div>
 
@@ -325,6 +360,53 @@ export function ClinicManagementView() {
               </DialogContent>
             </Dialog>
           </div>
+
+          {/* Modal de credenciais geradas — aparece logo após criar um funcionário com e-mail */}
+          <Dialog open={!!credentialsInfo} onOpenChange={(open) => !open && setCredentialsInfo(null)}>
+            <DialogContent className="sm:max-w-[440px]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <KeyRound className="h-5 w-5 text-primary" />
+                  Credenciais de Acesso
+                </DialogTitle>
+                <DialogDescription>
+                  {credentialsInfo?.emailDelivered
+                    ? "O e-mail de convite foi enviado, mas guarde a senha aqui como backup."
+                    : "O e-mail de convite não pôde ser enviado. Copie a senha e informe ao funcionário manualmente."}
+                </DialogDescription>
+              </DialogHeader>
+
+              {!credentialsInfo?.emailDelivered && (
+                <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>Falha no envio do e-mail. A conta já foi criada normalmente — só falta repassar a senha.</span>
+                </div>
+              )}
+
+              <div className="space-y-3 py-2">
+                <div className="grid gap-1.5">
+                  <Label>Login</Label>
+                  <Input readOnly value={credentialsInfo?.email || ""} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Senha Provisória</Label>
+                  <div className="flex gap-2">
+                    <Input readOnly value={credentialsInfo?.password || ""} className="font-mono" />
+                    <Button type="button" variant="outline" size="icon" onClick={handleCopyPassword}>
+                      {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    O funcionário será obrigado a trocar essa senha no primeiro login.
+                  </p>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button onClick={() => setCredentialsInfo(null)}>Fechar</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {staff.length === 0 ? (
             <Card className="p-8 text-center">
