@@ -22,8 +22,10 @@ import { AttachedExams } from "./attached-exams"
 import { ClinicalHistory } from "./clinical-history"
 import { MedicalInformation } from "./medical-information"
 import { AnamnesisSection } from "./anamnesis-section"
+import { ConsentForm } from "./consent-form"
 import { PrintableRecord } from "./printable-record"
 import { DentalChartView } from "@/components/dental-chart/dental-chart-view"
+import { type ToothCondition, DB_TO_CONDITION } from "@/components/dental-chart/dental-chart"
 import { CariesIndexChart } from "@/components/progress/caries-index-chart"
 import { PeriodontalHealthChart } from "@/components/progress/periodontal-health-chart"
 import { ComparisonChart } from "@/components/progress/comparison-chart"
@@ -63,10 +65,19 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
   const { data: anamnesesRes } = useSWR(`/api/anamnesis?patientId=${patientId}`, rawFetcher)
   const { data: clinicalRecordsRes } = useSWR(`/api/medical-records?patientId=${patientId}`, rawFetcher)
   const { data: examsRes } = useSWR(`/api/documents?patient_id=${patientId}&document_type=exam`, rawFetcher)
+  const { data: dentalChartRes } = useSWR(`/api/dental-charts?patientId=${patientId}`, rawFetcher)
+  const { data: consentsRes } = useSWR(`/api/documents?patient_id=${patientId}&document_type=consent`, rawFetcher)
 
   const anamneses = Array.isArray(anamnesesRes?.data) ? anamnesesRes.data : []
   const clinicalRecords = Array.isArray(clinicalRecordsRes?.data) ? clinicalRecordsRes.data : []
   const exams = Array.isArray(examsRes?.data) ? examsRes.data : []
+  const dentalChartRows = Array.isArray(dentalChartRes?.data) ? dentalChartRes.data : []
+  const toothData: Record<number, ToothCondition> = {}
+  for (const row of dentalChartRows) {
+    const uiCondition = DB_TO_CONDITION[row.condition]
+    if (uiCondition) toothData[row.tooth_number] = uiCondition
+  }
+  const consents = Array.isArray(consentsRes?.data) ? consentsRes.data : []
 
   // Consulta "Em Andamento" deste paciente
   const activeAppointment = appointments?.find((a: any) => a.status === "Em Andamento") ?? null
@@ -398,6 +409,7 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
             <AttachedExams patientId={patientId} />
           </div>
           <AnamnesisSection patientId={patientId} />
+          <ConsentForm patientId={patientId} />
           <ClinicalHistory patientId={patientId} />
         </TabsContent>
 
@@ -451,6 +463,8 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
         anamneses={anamneses}
         clinicalRecords={clinicalRecords}
         exams={exams}
+        toothData={toothData}
+        consents={consents}
       />
     </div>
   )

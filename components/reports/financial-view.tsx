@@ -168,12 +168,12 @@ function CashClosing({ onMutate }: { onMutate: () => void }) {
           </div>
         ) : (
           <>
-            {/* Resumo */}
-            <div className="flex items-center justify-between mb-3 px-1">
+            {/* Resumo — FIX: flex-wrap para não estourar em telas estreitas */}
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1">
               <span className="text-sm text-muted-foreground">
                 {pendingVerification.length} pendente(s) · Total: <strong>{formatCurrency(totalPending)}</strong>
               </span>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Button size="sm" variant="outline"
                   className="h-7 text-xs bg-transparent text-green-600 border-green-300 hover:bg-green-50 gap-1"
                   onClick={() => handleBulkAction("confirmed")}
@@ -191,9 +191,9 @@ function CashClosing({ onMutate }: { onMutate: () => void }) {
               </div>
             </div>
 
-            {/* Tabela */}
-            <div className="rounded-lg border border-border overflow-hidden">
-              <table className="w-full text-sm">
+            {/* Tabela — FIX: overflow-x-auto em vez de overflow-hidden, pra rolar em vez de cortar no mobile */}
+            <div className="rounded-lg border border-border overflow-x-auto">
+              <table className="w-full text-sm min-w-[560px]">
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
                     <th className="py-2 px-3 text-left w-8">
@@ -344,7 +344,7 @@ export function FinancialView() {
     }
   }
 
-  // Bug 3 fix: mutate chamado após qualquer atualização de status
+  // mutate chamado após qualquer atualização de status
   const handleUpdateStatus = async (id: string, status: string) => {
     try {
       await patchTransaction(id, { status })
@@ -532,27 +532,27 @@ export function FinancialView() {
           ) : (
             filteredTransactions.map((transaction) => (
               <div key={transaction.id}
-                className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-4">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center justify-center rounded-lg bg-primary/10 p-3">
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-border bg-muted/30 p-4">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="flex items-center justify-center rounded-lg bg-primary/10 p-3 shrink-0">
                     {getPaymentIcon(transaction.payment_method || "")}
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">
                       {(transaction as any).patient?.full_name || "Paciente"}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground truncate">
                       {transaction.description} · {transaction.payment_method}
                     </p>
                     <p className="text-xs text-muted-foreground">{formatDate(transaction.created_at)}</p>
                   </div>
                   {getStatusBadge(transaction.status)}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between sm:justify-end gap-3 flex-wrap">
                   <span className={`text-base font-semibold ${transaction.status === "cancelled" ? "line-through text-muted-foreground" : "text-foreground"}`}>
                     {formatCurrency(transaction.amount || 0)}
                   </span>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 flex-wrap">
                     {transaction.status === "pending" && (
                       <Button size="sm" variant="outline"
                         className="bg-transparent text-green-600 border-green-300 hover:bg-green-50 gap-1"

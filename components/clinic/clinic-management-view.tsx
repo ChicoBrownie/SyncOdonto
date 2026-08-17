@@ -1,15 +1,14 @@
 "use client"
 
-import { FinancialView } from "@/components/reports/financial-view"
+import { useState, useEffect } from "react"
 import { useClinicSettings, saveClinicSettings } from "@/lib/hooks/use-data"
-import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import {
-  Users, Calendar, TrendingUp, Clock, UserPlus, Trash2, Loader2, Edit, Mail, ShieldCheck,
+  Users, UserPlus, Trash2, Loader2, Edit, Mail, ShieldCheck,
   Copy, Check, AlertTriangle, KeyRound,
 } from "lucide-react"
 import {
@@ -19,6 +18,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
+import { FinancialView } from "@/components/reports/financial-view"
 import useSWR from "swr"
 import { toast } from "sonner"
 
@@ -222,8 +222,6 @@ export function ClinicManagementView() {
     } catch { toast.error("Erro ao atualizar status") }
   }
 
-  const activeStaff = staff.filter((s: any) => s.is_active).length
-
   useEffect(() => {
     if (!isGestor && activeTab !== "equipe") setActiveTab("equipe")
   }, [isGestor, activeTab])
@@ -233,29 +231,6 @@ export function ClinicManagementView() {
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-foreground">Gestão da Clínica</h1>
         <p className="text-muted-foreground mt-1">Gerencie equipe, finanças e operações</p>
-      </div>
-
-      {/* Métricas */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "Membros Ativos", value: activeStaff, sub: `de ${staff.length} cadastrados`, icon: Users, color: "bg-primary/10 text-primary" },
-          { label: "Consultas Hoje", value: todayAppointments.length, sub: "Agendadas para hoje", icon: Calendar, color: "bg-green-500/10 text-green-600" },
-          { label: "Taxa de Ocupação", value: `${Math.min(Math.round((todayAppointments.length / 8) * 100), 100)}%`, sub: "Base: 8 consultas/dia", icon: Clock, color: "bg-purple-500/10 text-purple-600" },
-          { label: "Concluídas Hoje", value: todayAppointments.filter((a: any) => a.status === "Concluída").length, sub: "Finalizadas", icon: TrendingUp, color: "bg-orange-500/10 text-orange-600" },
-        ].map(({ label, value, sub, icon: Icon, color }) => (
-          <Card key={label} className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">{label}</p>
-                <p className="text-2xl font-bold text-foreground mt-1">{value}</p>
-                <p className="text-xs text-muted-foreground mt-1">{sub}</p>
-              </div>
-              <div className={`p-3 rounded-lg ${color.split(" ")[0]}`}>
-                <Icon className={`w-5 h-5 ${color.split(" ")[1]}`} />
-              </div>
-            </div>
-          </Card>
-        ))}
       </div>
 
       {/* Tabs */}
