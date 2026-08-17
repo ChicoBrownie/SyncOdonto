@@ -8,6 +8,7 @@ import {
   TrendingUp,
   Users,
   Calendar,
+  Clock,
   DollarSign,
   FileText,
   BarChart3,
@@ -77,6 +78,19 @@ export function ReportsView() {
     const pEndISO = prev.end.toISOString().split("T")[0]
     return `/api/appointments?startDate=${pStartISO}&endDate=${pEndISO}`
   }, fetcher)
+
+  // Visão geral da clínica (hoje) — cards que vieram da tela de Gestão da Clínica
+  const { data: staffRes, isLoading: loadingStaff } = useSWR("/api/clinic-staff", fetcher)
+  const staff = staffRes?.data || []
+  const activeStaff = staff.filter((s: any) => s.is_active).length
+
+  const todayISO = new Date().toISOString().split("T")[0]
+  const { data: todayApptRes, isLoading: loadingToday } = useSWR(
+    `/api/appointments?date=${todayISO}`,
+    fetcher
+  )
+  const todayAppointments = todayApptRes?.data || []
+  const isLoadingClinicOverview = loadingStaff || loadingToday
 
   const appointments = appointmentsData?.data || []
   const prevAppointments = prevAppointmentsData?.data || []
@@ -188,6 +202,40 @@ export function ReportsView() {
             Proxima
           </Button>
         </div>
+      </div>
+
+      {/* Visão Geral da Clínica (Hoje) — antigos cards de Gestão da Clínica */}
+      <div>
+        <h2 className="text-lg font-semibold text-foreground mb-3">
+          Visão Geral da Clínica (Hoje)
+        </h2>
+        {isLoadingClinicOverview ? (
+          <div className="flex items-center justify-center h-24">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { label: "Membros Ativos", value: activeStaff, sub: `de ${staff.length} cadastrados`, icon: Users, color: "bg-primary/10 text-primary" },
+              { label: "Consultas Hoje", value: todayAppointments.length, sub: "Agendadas para hoje", icon: Calendar, color: "bg-green-500/10 text-green-600" },
+              { label: "Taxa de Ocupação", value: `${Math.min(Math.round((todayAppointments.length / 8) * 100), 100)}%`, sub: "Base: 8 consultas/dia", icon: Clock, color: "bg-purple-500/10 text-purple-600" },
+              { label: "Concluídas Hoje", value: todayAppointments.filter((a: any) => a.status === "Concluída").length, sub: "Finalizadas", icon: TrendingUp, color: "bg-orange-500/10 text-orange-600" },
+            ].map(({ label, value, sub, icon: Icon, color }) => (
+              <Card key={label} className="p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">{label}</p>
+                    <p className="text-2xl font-bold text-foreground mt-1">{value}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{sub}</p>
+                  </div>
+                  <div className={`p-3 rounded-lg ${color.split(" ")[0]}`}>
+                    <Icon className={`w-5 h-5 ${color.split(" ")[1]}`} />
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -352,7 +400,7 @@ export function ReportsView() {
                         cx="50%"
                         cy="50%"
                         labelLine={false}
-                        label={({ name, percent }) =>
+                        label={({ name, percent = 0 }) =>
                           `${name} ${(percent * 100).toFixed(0)}%`
                         }
                         outerRadius={80}

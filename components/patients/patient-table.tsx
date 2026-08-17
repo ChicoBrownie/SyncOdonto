@@ -38,7 +38,9 @@ const emptyForm = {
   allergies: "",
   pre_existing_conditions: "",
   medications: "",
-  tags: [] as string[],
+  guardian_name: "", 
+  guardian_cpf: "",
+  tags: [] as string[], 
 }
 
 interface PatientTableProps {
@@ -72,9 +74,11 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
       gender: (patient.gender as "Masculino" | "Feminino" | "Outro") || "Masculino",
       cpf: patient.cpf || "",
       address: (patient as any).address || "",
-      allergies: patient.allergies || "",
+       allergies: patient.allergies || "",
       pre_existing_conditions: (patient as any).pre_existing_conditions || "",
       medications: (patient as any).medications || "",
+      guardian_name: (patient as any).guardian_name || "",
+      guardian_cpf: (patient as any).guardian_cpf || "",
       tags: patientTags,
     })
     setShowMedicalHistory(

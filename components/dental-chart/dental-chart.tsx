@@ -92,20 +92,20 @@ export function DentalChart({
           }
         }}
         className={cn(
-          "relative flex h-11 w-11 sm:h-13 sm:w-13 items-center justify-center rounded-lg border-2 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/50",
-          isSelected && !multiSelectMode && "ring-2 ring-primary ring-offset-2 ring-offset-background",
-          isChecked && multiSelectMode && "ring-2 ring-primary ring-offset-2 ring-offset-background scale-105",
+          "relative flex h-8 w-8 sm:h-12 sm:w-12 items-center justify-center rounded-md sm:rounded-lg border-2 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/50 shrink-0",
+          isSelected && !multiSelectMode && "ring-2 ring-primary ring-offset-1 sm:ring-offset-2 ring-offset-background",
+          isChecked && multiSelectMode && "ring-2 ring-primary ring-offset-1 sm:ring-offset-2 ring-offset-background scale-105",
           isMissing && "opacity-50 line-through",
           getToothColor(condition),
         )}
       >
         {isChecked && multiSelectMode && (
-          <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <Check className="h-2.5 w-2.5" />
+          <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <Check className="h-2 w-2" />
           </span>
         )}
         <span className={cn(
-          "text-xs font-bold",
+          "text-[10px] sm:text-xs font-bold",
           isEmpty ? "text-muted-foreground" : "text-foreground",
         )}>
           {toothNumber}
@@ -144,24 +144,30 @@ export function DentalChart({
     )
   }
 
+  // Cada lado da arcada: grade de 4 colunas no celular (quebra em 2 linhas de 4),
+  // vira fileira única a partir de sm: (tablet/desktop) — sem scroll horizontal em nenhum tamanho.
+  const quadrantClass = "grid grid-cols-4 gap-1 sm:flex sm:gap-1.5 justify-items-center"
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full overflow-hidden">
+      {/* Arcada Superior */}
       <div>
         <div className="mb-3 text-center">
           <span className="text-sm font-medium text-muted-foreground">Arcada Superior</span>
         </div>
-        <div className="flex justify-center gap-6 sm:gap-8">
-          <div className="flex gap-1 sm:gap-1.5">{upperTeeth[0].map(renderTooth)}</div>
-          <div className="flex gap-1 sm:gap-1.5">{upperTeeth[1].map(renderTooth)}</div>
+        <div className="flex justify-center gap-2 sm:gap-8">
+          <div className={quadrantClass}>{upperTeeth[0].map(renderTooth)}</div>
+          <div className={quadrantClass}>{upperTeeth[1].map(renderTooth)}</div>
         </div>
       </div>
 
       <div className="h-px bg-border" />
 
+      {/* Arcada Inferior */}
       <div>
-        <div className="flex justify-center gap-6 sm:gap-8">
-          <div className="flex gap-1 sm:gap-1.5">{lowerTeeth[0].map(renderTooth)}</div>
-          <div className="flex gap-1 sm:gap-1.5">{lowerTeeth[1].map(renderTooth)}</div>
+        <div className="flex justify-center gap-2 sm:gap-8">
+          <div className={quadrantClass}>{lowerTeeth[0].map(renderTooth)}</div>
+          <div className={quadrantClass}>{lowerTeeth[1].map(renderTooth)}</div>
         </div>
         <div className="mt-3 text-center">
           <span className="text-sm font-medium text-muted-foreground">Arcada Inferior</span>

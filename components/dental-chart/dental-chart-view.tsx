@@ -177,7 +177,7 @@ export function DentalChartView({ patientId }: DentalChartViewProps) {
       </div>
 
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-3 sm:p-6 overflow-hidden">
           {isLoading ? (
             <div className="flex items-center justify-center h-40">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />

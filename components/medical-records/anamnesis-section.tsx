@@ -10,6 +10,10 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -31,6 +35,8 @@ interface AnamnesisRecord {
   answers: AnamnesisAnswer[]
   additional_notes: string | null
   dentist_name: string | null
+  diagnosis: string | null
+  treatment_plan: string | null
   created_at: string
 }
 
@@ -49,6 +55,7 @@ const QUESTION_GROUPS: { group: string; questions: string[] }[] = [
       "Faz uso de anticoagulantes ou bisfosfonatos?",
       "Tem histórico de convulsões ou epilepsia?",
       "Tem problemas renais?",
+      "Há histórico de doenças na família (cardíacas, diabetes, hemorrágicas, câncer)?",
     ],
   },
   {
@@ -62,8 +69,17 @@ const QUESTION_GROUPS: { group: string; questions: string[] }[] = [
     group: "Histórico Odontológico",
     questions: [
       "Já teve reação alérgica a anestesia odontológica?",
+      "Já fez uso de anestesia odontológica anteriormente? Houve alguma intercorrência?",
       "Sente dor, sensibilidade ou sangramento na gengiva?",
       "Range ou aperta os dentes (bruxismo)?",
+    ],
+  },
+  {
+    group: "Higiene e Dieta",
+    questions: [
+      "Escova os dentes pelo menos 2 vezes ao dia?",
+      "Usa fio dental regularmente?",
+      "Consome alimentos ou bebidas açucaradas com frequência?",
     ],
   },
 ]
@@ -91,6 +107,9 @@ export function AnamnesisSection({ patientId }: AnamnesisSectionProps) {
   const [dentistName, setDentistName] = useState("")
   const [answers, setAnswers] = useState<AnamnesisAnswer[]>(buildEmptyAnswers())
   const [additionalNotes, setAdditionalNotes] = useState("")
+  const [diagnosis, setDiagnosis] = useState("")
+  const [treatmentPlan, setTreatmentPlan] = useState("")
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
   const records: AnamnesisRecord[] = data?.data || []
 
@@ -99,6 +118,8 @@ export function AnamnesisSection({ patientId }: AnamnesisSectionProps) {
     setDentistName("")
     setAnswers(buildEmptyAnswers())
     setAdditionalNotes("")
+    setDiagnosis("")
+    setTreatmentPlan("")
     setIsDialogOpen(true)
   }
 
@@ -126,6 +147,8 @@ export function AnamnesisSection({ patientId }: AnamnesisSectionProps) {
           dentist_name: dentistName || null,
           answers,
           additional_notes: additionalNotes || null,
+          diagnosis: diagnosis || null,
+          treatment_plan: treatmentPlan || null,
         }),
       })
       if (!res.ok) {
@@ -208,7 +231,7 @@ export function AnamnesisSection({ patientId }: AnamnesisSectionProps) {
                       variant="ghost"
                       size="sm"
                       className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                      onClick={(e) => { e.stopPropagation(); handleDelete(record.id) }}
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(record.id) }}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -229,6 +252,18 @@ export function AnamnesisSection({ patientId }: AnamnesisSectionProps) {
                             </div>
                           ))}
                         </div>
+                      </div>
+                    )}
+                    {record.diagnosis && (
+                      <div>
+                        <p className="text-xs font-medium text-foreground mb-1">Diagnóstico</p>
+                        <p className="text-sm text-muted-foreground">{record.diagnosis}</p>
+                      </div>
+                    )}
+                    {record.treatment_plan && (
+                      <div>
+                        <p className="text-xs font-medium text-foreground mb-1">Plano de Tratamento</p>
+                        <p className="text-sm text-muted-foreground">{record.treatment_plan}</p>
                       </div>
                     )}
                     {record.additional_notes && (
@@ -317,6 +352,26 @@ export function AnamnesisSection({ patientId }: AnamnesisSectionProps) {
             ))}
 
             <div className="grid gap-2">
+              <Label>Diagnóstico</Label>
+              <Textarea
+                value={diagnosis}
+                onChange={(e) => setDiagnosis(e.target.value)}
+                placeholder="Diagnóstico definitivo ou presuntivo..."
+                rows={2}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Plano de Tratamento</Label>
+              <Textarea
+                value={treatmentPlan}
+                onChange={(e) => setTreatmentPlan(e.target.value)}
+                placeholder="Plano de tratamento proposto/aprovado..."
+                rows={2}
+              />
+            </div>
+
+            <div className="grid gap-2">
               <Label>Observações Gerais</Label>
               <Textarea
                 value={additionalNotes}
@@ -338,6 +393,26 @@ export function AnamnesisSection({ patientId }: AnamnesisSectionProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir anamnese?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Essa ação não pode ser desfeita. A anamnese será removida permanentemente do histórico do paciente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => { if (deleteTarget) handleDelete(deleteTarget); setDeleteTarget(null) }}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 }
