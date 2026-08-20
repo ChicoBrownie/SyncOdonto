@@ -1,4 +1,5 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
+import { requirePermission } from "@/lib/permissions-server"
 import { NextResponse } from "next/server"
 
 export async function PATCH(
@@ -7,7 +8,11 @@ export async function PATCH(
 ) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId } = result as any
+  const { supabase, ownerId, permissions } = result as any
+
+  const denied = requirePermission(permissions, "financeiro")
+  if (denied) return denied
+
   const { id } = await params
 
   const body = await request.json()

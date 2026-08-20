@@ -1,16 +1,20 @@
 import { updateSession } from '@/lib/supabase/middleware'
 import { NextResponse, type NextRequest } from 'next/server'
+import { getEffectivePermissions, type StaffPermissions } from '@/lib/permissions'
 
 const GESTOR_ONLY = [
-  "/relatorios/financeiro",
-  "/admin",
+  '/admin',
 ]
+
+const PERMISSION_ROUTES: Record<string, keyof StaffPermissions> = {
+  '/financeiro': 'financeiro',
+  '/relatorios': 'relatorios',
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const { supabaseResponse, user, supabase } = await updateSession(request)
 
-  // Rotas públicas — deixa passar como updateSession já resolveu
   if (
     pathname.startsWith('/auth') ||
     pathname.startsWith('/_next') ||
@@ -20,30 +24,42 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse
   }
 
-  // updateSession já redireciona pra /auth/login quando não há usuário
   if (!user || !supabase) {
     return supabaseResponse
   }
 
-  // Senha provisória pendente — obriga trocar antes de acessar qualquer rota
   if (user.user_metadata?.must_change_password) {
     return NextResponse.redirect(new URL('/auth/nova-senha?type=force', request.url))
   }
 
-  // Rotas restritas a gestor
   const isGestorOnly = GESTOR_ONLY.some(route => pathname.startsWith(route))
-  if (!isGestorOnly) return supabaseResponse
+  const permissionEntry = Object.entries(PERMISSION_ROUTES).find(([route]) =>
+    pathname.startsWith(route)
+  )
 
-  // Reaproveita o MESMO client (mesma sessão/cookies) já autenticado por
-  // updateSession — não cria um segundo client nem chama getUser() de novo.
+  if (!isGestorOnly && !permissionEntry) return supabaseResponse
+
   const { data: staffRecord } = await supabase
     .from('clinic_staff')
-    .select('access_role')
+    .select('access_role, permissions')
     .eq('auth_user_id', user.id)
     .maybeSingle()
 
-  if (staffRecord && staffRecord.access_role !== 'gestor') {
-    return NextResponse.redirect(new URL('/', request.url))
+  const accessRole = staffRecord?.access_role || 'gestor'
+
+  if (isGestorOnly) {
+    if (accessRole !== 'gestor') {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
+    return supabaseResponse
+  }
+
+  if (permissionEntry) {
+    const [, permissionKey] = permissionEntry
+    const permissions = getEffectivePermissions(accessRole, staffRecord?.permissions as any)
+    if (!permissions[permissionKey]) {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
   }
 
   return supabaseResponse

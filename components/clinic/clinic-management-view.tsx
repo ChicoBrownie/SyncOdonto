@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Users, UserPlus, Trash2, Loader2, Edit, Mail, ShieldCheck,
   Copy, Check, AlertTriangle, KeyRound,
@@ -18,9 +19,23 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
+import {
+  AlertDialog, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { FinancialView } from "@/components/reports/financial-view"
+import {
+  DEFAULT_PERMISSIONS, getEffectivePermissions,
+  type StaffAccessRole, type StaffPermissions,
+} from "@/lib/permissions"
 import useSWR from "swr"
 import { toast } from "sonner"
+
+const PERMISSION_FIELDS: { key: keyof StaffPermissions; label: string; hint: string }[] = [
+  { key: "relatorios" as const, label: "Relatórios", hint: "Ver métricas e relatórios semanais da clínica" },
+  { key: "financeiro" as const, label: "Financeiro", hint: "Ver pagamentos e fazer fechamento de caixa" },
+  { key: "configuracoes" as const, label: "Configurações da Clínica", hint: "Editar dados, horários e informações da clínica" },
+]
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
@@ -46,14 +61,29 @@ export function ClinicManagementView() {
   const [credentialsInfo, setCredentialsInfo] = useState<CredentialsInfo | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // Membro selecionado para exclusão — usado pelo AlertDialog de confirmação
+  const [memberToDelete, setMemberToDelete] = useState<any>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+
   const { data: staffRes, mutate: mutateStaff } = useSWR("/api/clinic-staff", fetcher)
   const staff = staffRes?.data || []
 
   const { data: accessRes } = useSWR("/api/auth/check-access", fetcher)
   const isGestor = (accessRes?.access_role || "gestor") === "gestor"
-  const visibleTabs = (["equipe", "financeiro", "configuracoes"] as const).filter(
-    (tab) => isGestor || tab === "equipe"
-  )
+  const myUserId = accessRes?.user_id
+  // "(você)" precisa comparar com quem está logado de verdade — não com o
+  // cargo. A flag `virtual` só indica "este card é o gestor renderizado
+  // sinteticamente", não "este card é você".
+  const isMe = (member: any) => !!myUserId && member.auth_user_id === myUserId
+  // Antes a checagem era só "isGestor" — agora cada aba olha pra permissão
+  // granular do usuário logado, que o próprio gestor configura por membro.
+  const myPermissions: StaffPermissions = accessRes?.permissions || DEFAULT_PERMISSIONS.gestor
+  const visibleTabs = (["equipe", "financeiro", "configuracoes"] as const).filter((tab) => {
+    if (tab === "equipe") return true
+    if (tab === "financeiro") return myPermissions.financeiro
+    if (tab === "configuracoes") return myPermissions.configuracoes
+    return false
+  })
 
   const today = new Date().toISOString().split("T")[0]
   const { data: apptRes } = useSWR(`/api/appointments?date=${today}`, fetcher)
@@ -67,6 +97,8 @@ export function ClinicManagementView() {
     email: "", phone: "", access_role: "dentista",
   }
   const [form, setForm] = useState(emptyForm)
+  // Permissões granulares do membro sendo criado/editado no modal.
+  const [permissionsForm, setPermissionsForm] = useState<StaffPermissions>(DEFAULT_PERMISSIONS.dentista)
 
   const { settings, isLoading: isLoadingSettings, mutate: mutateSettings } = useClinicSettings()
   const [isSavingSettings, setIsSavingSettings] = useState(false)
@@ -132,9 +164,19 @@ export function ClinicManagementView() {
     }
   }
 
-  const openCreate = () => { setEditingMember(null); setForm(emptyForm); setIsDialogOpen(true) }
+  const openCreate = () => {
+    setEditingMember(null)
+    setForm(emptyForm)
+    setPermissionsForm(DEFAULT_PERMISSIONS[emptyForm.access_role as StaffAccessRole])
+    setIsDialogOpen(true)
+  }
 
   const openEdit = (member: any) => {
+    // Entrada virtual do gestor (não existe linha real em clinic_staff) —
+    // não deveria nem chegar aqui, já que o botão de editar some pra ela,
+    // mas mantemos a guarda por segurança.
+    if (member?.virtual) return
+
     setEditingMember(member)
     setForm({
       full_name: member.full_name || "",
@@ -144,6 +186,7 @@ export function ClinicManagementView() {
       phone: member.phone || "",
       access_role: member.access_role || "dentista",
     })
+    setPermissionsForm(getEffectivePermissions(member.access_role, member.permissions))
     setIsDialogOpen(true)
   }
 
@@ -152,7 +195,10 @@ export function ClinicManagementView() {
     setIsSaving(true)
     try {
       const method = editingMember ? "PUT" : "POST"
-      const body = editingMember ? { id: editingMember.id, ...form } : form
+      const permissionsToSend = form.access_role === "gestor" ? null : permissionsForm
+      const body = editingMember
+        ? { id: editingMember.id, ...form, permissions: permissionsToSend }
+        : { ...form, permissions: permissionsToSend }
 
       const res = await fetch("/api/clinic-staff", {
         method,
@@ -163,15 +209,23 @@ export function ClinicManagementView() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Erro ao salvar")
 
+      mutateStaff()
+      setIsDialogOpen(false)
+
       // Se uma senha temporária foi gerada, mostra no modal de credenciais
       // independente do e-mail ter sido entregue ou não.
+      // Pequeno delay para deixar a animação de saída do modal "Novo Membro"
+      // terminar antes de abrir o modal de credenciais (evita flicker de overlays sobrepostos).
       if (data.temp_password) {
-        setCredentialsInfo({
-          email: form.email,
-          password: data.temp_password,
-          emailDelivered: !!data.email_delivered,
-        })
-        setCopied(false)
+        setTimeout(() => {
+          setCredentialsInfo({
+            email: form.email,
+            password: data.temp_password,
+            emailDelivered: !!data.email_delivered,
+          })
+          setCopied(false)
+        }, 150)
+
         if (data.email_delivered) {
           toast.success(`Membro adicionado! Convite enviado para ${form.email}`)
         } else {
@@ -180,9 +234,6 @@ export function ClinicManagementView() {
       } else {
         toast.success(editingMember ? "Membro atualizado!" : "Membro adicionado!")
       }
-
-      mutateStaff()
-      setIsDialogOpen(false)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar membro")
     } finally {
@@ -202,15 +253,27 @@ export function ClinicManagementView() {
     }
   }
 
-  const handleDelete = async (id: string) => {
+  const confirmDelete = async () => {
+    if (!memberToDelete) return
+    setIsDeleting(true)
     try {
-      await fetch(`/api/clinic-staff?id=${id}`, { method: "DELETE" })
+      const res = await fetch(`/api/clinic-staff?id=${memberToDelete.id}`, { method: "DELETE" })
+      // Antes: não checava res.ok, então um erro do Supabase (RLS, constraint, etc.)
+      // aparecia como "removido com sucesso" mesmo sem apagar nada do banco.
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Erro ao remover membro")
       toast.success("Membro removido!")
       mutateStaff()
-    } catch { toast.error("Erro ao remover membro") }
+      setMemberToDelete(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao remover membro")
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   const handleToggleActive = async (member: any) => {
+    if (member?.virtual) return
     try {
       await fetch("/api/clinic-staff", {
         method: "PUT",
@@ -222,9 +285,21 @@ export function ClinicManagementView() {
     } catch { toast.error("Erro ao atualizar status") }
   }
 
+  // Gera as iniciais do avatar de forma segura, ignorando espaços duplicados/no fim
+  // que faziam aparecer "undefined" ou uma letra solta no círculo do avatar.
+  const getInitials = (fullName: string) =>
+    fullName
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((n: string) => n[0])
+      .join("")
+      .substring(0, 2)
+      .toUpperCase()
+
   useEffect(() => {
-    if (!isGestor && activeTab !== "equipe") setActiveTab("equipe")
-  }, [isGestor, activeTab])
+    if (!visibleTabs.includes(activeTab)) setActiveTab("equipe")
+  }, [visibleTabs, activeTab])
 
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-6">
@@ -254,7 +329,9 @@ export function ClinicManagementView() {
               <DialogTrigger asChild>
                 <Button onClick={openCreate}><UserPlus className="w-4 h-4 mr-2" />Adicionar Membro</Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
+              {/* max-h + overflow-y-auto: o formulário cresceu com o campo "Perfil de Acesso"
+                  e sem isso o rodapé com os botões ficava cortado em telas menores. */}
+              <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{editingMember ? "Editar Membro" : "Novo Membro"}</DialogTitle>
                   <DialogDescription>
@@ -273,7 +350,15 @@ export function ClinicManagementView() {
                       <ShieldCheck className="h-3.5 w-3.5 text-primary" />
                       Perfil de Acesso
                     </Label>
-                    <Select value={form.access_role} onValueChange={(v) => setForm({ ...form, access_role: v })}>
+                    <Select
+                      value={form.access_role}
+                      onValueChange={(v) => {
+                        setForm({ ...form, access_role: v })
+                        // Trocar o cargo reseta as permissões pro padrão daquele
+                        // cargo — o gestor pode ajustar de novo logo abaixo.
+                        setPermissionsForm(DEFAULT_PERMISSIONS[v as StaffAccessRole] || DEFAULT_PERMISSIONS.recepcionista)
+                      }}
+                    >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="gestor">Gestor — acesso total ao sistema</SelectItem>
@@ -283,10 +368,40 @@ export function ClinicManagementView() {
                     </Select>
                     <p className="text-xs text-muted-foreground">
                       {form.access_role === "gestor" && "Acesso completo incluindo financeiro e configurações."}
-                      {form.access_role === "dentista" && "Acesso à agenda, pacientes, prontuários e relatórios."}
-                      {form.access_role === "recepcionista" && "Acesso à agenda e cadastro de pacientes. Sem financeiro."}
+                      {form.access_role === "dentista" && "Acesso à agenda, pacientes e prontuários. Ajuste abaixo o que mais ele pode ver."}
+                      {form.access_role === "recepcionista" && "Acesso à agenda e cadastro de pacientes. Ajuste abaixo o que mais ele pode ver."}
                     </p>
                   </div>
+
+                  {/* Permissões granulares — só faz sentido pra quem não é gestor,
+                      já que gestor sempre tem acesso total. */}
+                  {form.access_role !== "gestor" && (
+                    <div className="grid gap-2">
+                      <Label className="flex items-center gap-1">
+                        <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                        Permissões Extras
+                      </Label>
+                      <div className="space-y-3 rounded-md border border-border p-3">
+                        {PERMISSION_FIELDS.map(({ key, label, hint }) => (
+                          <div key={String(key)} className="flex items-start gap-2">
+                            <Checkbox
+                              id={`perm-${String(key)}`}
+                              checked={permissionsForm[key]}
+                              onCheckedChange={(checked) =>
+                                setPermissionsForm((prev: StaffPermissions) => ({ ...prev, [key]: !!checked }))
+                              }
+                            />
+                            <div className="grid gap-0.5 leading-none">
+                              <label htmlFor={`perm-${String(key)}`} className="text-sm font-medium text-foreground cursor-pointer">
+                                {label}
+                              </label>
+                              <p className="text-xs text-muted-foreground">{hint}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="grid gap-2">
@@ -383,6 +498,30 @@ export function ClinicManagementView() {
             </DialogContent>
           </Dialog>
 
+          {/* Confirmação antes de remover um membro — evita exclusão acidental */}
+          <AlertDialog open={!!memberToDelete} onOpenChange={(open) => !open && !isDeleting && setMemberToDelete(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remover {memberToDelete?.full_name}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Essa ação não pode ser desfeita.
+                  {memberToDelete?.email
+                    ? " O login vinculado a este e-mail deixará de ter acesso ao sistema."
+                    : ""}
+                  {" "}Consultas, prontuários e lançamentos financeiros já registrados não são apagados.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <Button variant="outline" className="bg-transparent" disabled={isDeleting} onClick={() => setMemberToDelete(null)}>
+                  Cancelar
+                </Button>
+                <Button variant="destructive" disabled={isDeleting} onClick={confirmDelete}>
+                  {isDeleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Removendo...</> : "Remover Membro"}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
           {staff.length === 0 ? (
             <Card className="p-8 text-center">
               <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
@@ -396,14 +535,17 @@ export function ClinicManagementView() {
                   <Card key={member.id} className="p-4">
                     <div className="flex items-center justify-between flex-wrap gap-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
                           <span className="text-primary font-semibold text-sm">
-                            {member.full_name.split(" ").map((n: string) => n[0]).join("").substring(0, 2).toUpperCase()}
+                            {getInitials(member.full_name)}
                           </span>
                         </div>
                         <div>
-                          <p className="font-medium text-foreground">{member.full_name}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <p className="font-medium text-foreground">
+                            {member.full_name}
+                            {isMe(member) && <span className="text-muted-foreground font-normal"> (você)</span>}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             <p className="text-sm text-muted-foreground">
                               {member.role}{member.specialty ? ` · ${member.specialty}` : ""}
                             </p>
@@ -411,12 +553,6 @@ export function ClinicManagementView() {
                               {roleConfig.label}
                             </span>
                           </div>
-                          {member.invite_sent_at && (
-                            <p className="text-xs text-emerald-600 mt-0.5 flex items-center gap-1">
-                              <Mail className="h-3 w-3" />
-                              Convite enviado
-                            </p>
-                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
@@ -424,18 +560,27 @@ export function ClinicManagementView() {
                           <p className="text-xs text-muted-foreground">Consultas Hoje</p>
                           <p className="font-semibold text-foreground">{getAppointmentCount(member.full_name)}</p>
                         </div>
-                        <Badge
-                          className={`cursor-pointer ${member.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}`}
-                          onClick={() => handleToggleActive(member)}
-                        >
-                          {member.is_active ? "Ativo" : "Inativo"}
-                        </Badge>
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(member)}>
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(member.id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        {!member.virtual && (
+                          <Badge
+                            className={`cursor-pointer ${member.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}`}
+                            onClick={() => handleToggleActive(member)}
+                          >
+                            {member.is_active ? "Ativo" : "Inativo"}
+                          </Badge>
+                        )}
+                        {/* A entrada do gestor é virtual (não existe linha em clinic_staff),
+                            então não faz sentido oferecer editar/excluir por aqui. */}
+                        {!member.virtual && (
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(member)}>
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {/* Só o gestor pode ver (e usar) o botão de excluir membro. */}
+                        {!member.virtual && isGestor && (
+                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setMemberToDelete(member)}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </Card>
@@ -518,3 +663,4 @@ export function ClinicManagementView() {
     </div>
   )
 }
+
