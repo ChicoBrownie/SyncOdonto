@@ -1,10 +1,14 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
+import { requirePermission } from "@/lib/permissions-server"
 import { NextResponse } from "next/server"
 
 export async function GET() {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId } = result as any
+  const { supabase, ownerId, permissions } = result as any
+
+  const denied = requirePermission(permissions, "configuracoes")
+  if (denied) return denied
 
   const { data, error } = await supabase
     .from("clinic_settings")
@@ -22,7 +26,10 @@ export async function GET() {
 export async function POST(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId } = result as any
+  const { supabase, ownerId, permissions } = result as any
+
+  const denied = requirePermission(permissions, "configuracoes")
+  if (denied) return denied
 
   const body = await request.json()
 

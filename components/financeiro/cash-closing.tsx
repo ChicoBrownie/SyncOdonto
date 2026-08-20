@@ -177,7 +177,10 @@ export function CashClosing() {
       <CardContent className="space-y-4">
         {pending.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
-            <CheckCircle2 className="h-8 w-8 text-success" />
+            {/* text-success não existe no tema (não está definido em globals.css/tailwind.config),
+                então o ícone ficava sem cor. Trocado para emerald-600, mesmo padrão usado
+                em outras partes do app (ex: "Convite enviado"). */}
+            <CheckCircle2 className="h-8 w-8 text-emerald-600" />
             <p className="text-sm font-medium text-foreground">Tudo verificado!</p>
             <p className="text-xs text-muted-foreground">Nenhum pagamento pendente de verificação no momento.</p>
           </div>
@@ -209,7 +212,7 @@ export function CashClosing() {
                   <div className="flex gap-2 ml-auto">
                     <Button
                       size="sm"
-                      className="h-7 text-xs bg-success text-white hover:bg-success/90"
+                      className="h-7 text-xs bg-emerald-600 text-white hover:bg-emerald-600/90"
                       onClick={() => handleVerify("confirmed")}
                       disabled={saving}
                     >

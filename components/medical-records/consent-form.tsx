@@ -10,6 +10,10 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { SignaturePad } from "@/components/documents/signature-pad"
@@ -58,6 +62,7 @@ export function ConsentForm({ patientId }: ConsentFormProps) {
   const [guardianName, setGuardianName] = useState("")
   const [guardianCpf, setGuardianCpf] = useState("")
   const [signatureData, setSignatureData] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
   const records: ConsentDocument[] = data?.data || []
   const age = calculateAge(patient?.date_of_birth || null)
@@ -170,7 +175,7 @@ export function ConsentForm({ patientId }: ConsentFormProps) {
                     variant="ghost"
                     size="sm"
                     className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                    onClick={() => handleDelete(doc.id)}
+                    onClick={() => setDeleteTarget(doc.id)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
@@ -230,6 +235,26 @@ export function ConsentForm({ patientId }: ConsentFormProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir TCLE assinado?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Essa ação não pode ser desfeita. O termo e a assinatura serão removidos permanentemente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => { if (deleteTarget) handleDelete(deleteTarget); setDeleteTarget(null) }}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 }

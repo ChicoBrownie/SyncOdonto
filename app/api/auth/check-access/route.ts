@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
 import { createClient } from "@supabase/supabase-js"
+import { getEffectivePermissions } from "@/lib/permissions"
 
 function getServiceClient() {
   return createClient(
@@ -18,11 +19,12 @@ export async function GET() {
 
   const { data: staffRecord } = await adminClient
     .from("clinic_staff")
-    .select("access_role")
+    .select("access_role, permissions")
     .eq("auth_user_id", user.id)
     .maybeSingle()
 
-  return NextResponse.json({
-    access_role: staffRecord?.access_role || "gestor",
-  })
+  const access_role = staffRecord?.access_role || "gestor"
+  const permissions = getEffectivePermissions(access_role, staffRecord?.permissions as any)
+
+  return NextResponse.json({ access_role, permissions, user_id: user.id })
 }
