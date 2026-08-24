@@ -25,13 +25,14 @@ const actions = [
   },
 ]
 
-export function DocumentActions() {
+export function DocumentActions({ onNewDocument, onNewTerm, onNewBudget }: { onNewDocument: () => void; onNewTerm: () => void; onNewBudget: () => void }) {
+  const callbacks = [onNewDocument, onNewTerm, onNewBudget]
   return (
     <div className="grid gap-4 sm:grid-cols-3">
-      {actions.map((action) => {
+      {actions.map((action, index) => {
         const Icon = action.icon
         return (
-          <Card key={action.label} className="cursor-pointer transition-colors hover:bg-muted/50">
+          <Card key={action.label} role="button" tabIndex={0} onClick={callbacks[index]} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") callbacks[index]() }} className="cursor-pointer transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <CardContent className="p-6">
               <div className="flex flex-col items-center text-center gap-3">
                 <div className={`rounded-lg p-4 ${action.bgColor}`}>

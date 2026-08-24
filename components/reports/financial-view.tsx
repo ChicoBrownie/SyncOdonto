@@ -16,8 +16,8 @@ import {
 } from "@/components/ui/dialog"
 import {
   DollarSign, Plus, Loader2, AlertCircle, TrendingUp, TrendingDown,
-  Wallet, CreditCard, Banknote, Smartphone, CheckCircle, XCircle,
-  Clock, ShieldCheck, AlertTriangle,
+  Wallet, CreditCard, Banknote, Smartphone, CheckCircle,
+  Clock, ShieldCheck, AlertTriangle, CalendarDays,
 } from "lucide-react"
 import { useFinancialTransactions, usePatients, createFinancialTransaction } from "@/lib/hooks/use-data"
 import { toast } from "sonner"
@@ -255,6 +255,11 @@ export function FinancialView() {
   const [filterStatus, setFilterStatus] = useState("all")
   const [filterMethod, setFilterMethod] = useState("all")
   const [filterPeriod, setFilterPeriod] = useState("month")
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [transactionToReceive, setTransactionToReceive] = useState<any | null>(null)
+  const [receiveMethod, setReceiveMethod] = useState("")
+  const [receiveDate, setReceiveDate] = useState(toLocalDateString(new Date()))
+  const [receiveError, setReceiveError] = useState<string | null>(null)
 
   const { patients } = usePatients()
 
@@ -344,14 +349,34 @@ export function FinancialView() {
     }
   }
 
-  // mutate chamado após qualquer atualização de status
-  const handleUpdateStatus = async (id: string, status: string) => {
+  const openReceiveDialog = (transaction: any) => {
+    setTransactionToReceive(transaction)
+    setReceiveMethod(transaction.payment_method || "")
+    setReceiveDate(toLocalDateString(new Date()))
+    setReceiveError(null)
+  }
+
+  const handleReceive = async () => {
+    if (!transactionToReceive) return
+    if (!receiveMethod) {
+      setReceiveError("Escolha como o paciente realizou o pagamento.")
+      return
+    }
+    setUpdatingId(transactionToReceive.id)
     try {
-      await patchTransaction(id, { status })
-      toast.success("Status atualizado!")
-      mutate() // revalida a lista de transações
+      await patchTransaction(transactionToReceive.id, {
+        status: "paid",
+        verification_status: "confirmed",
+        payment_method: receiveMethod,
+        paid_date: new Date(`${receiveDate}T12:00:00-03:00`).toISOString(),
+      })
+      toast.success(`Recebimento de ${formatCurrency(transactionToReceive.amount || 0)} registrado.`)
+      await mutate()
+      setTransactionToReceive(null)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao atualizar status")
+      setReceiveError(err instanceof Error ? err.message : "Erro ao registrar recebimento")
+    } finally {
+      setUpdatingId(null)
     }
   }
 
@@ -436,9 +461,6 @@ export function FinancialView() {
         </Dialog>
       </div>
 
-      {/* Fechamento de Caixa — sincroniza com mutate da lista de transações */}
-      <CashClosing onMutate={mutate} />
-
       {/* Métricas */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="p-4">
@@ -476,7 +498,12 @@ export function FinancialView() {
       {/* Filtros */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex flex-wrap gap-3 items-center">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm font-medium">Período e filtros</p>
+              <p className="text-xs text-muted-foreground">Os totais e a lista abaixo seguem estes filtros.</p>
+            </div>
+            <div className="flex flex-wrap gap-3 items-center">
             <div className="flex gap-1">
               {[{ value: "today", label: "Hoje" }, { value: "week", label: "Semana" },
                 { value: "month", label: "Mês" }, { value: "all", label: "Tudo" }].map(p => (
@@ -504,6 +531,7 @@ export function FinancialView() {
                 {PAYMENT_METHODS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
               </SelectContent>
             </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -542,7 +570,7 @@ export function FinancialView() {
                       {(transaction as any).patient?.full_name || "Paciente"}
                     </p>
                     <p className="text-xs text-muted-foreground truncate">
-                      {transaction.description} · {transaction.payment_method}
+                      {transaction.description}{transaction.payment_method ? ` · ${transaction.payment_method}` : " · Forma de pagamento a definir"}
                     </p>
                     <p className="text-xs text-muted-foreground">{formatDate(transaction.created_at)}</p>
                   </div>
@@ -554,17 +582,11 @@ export function FinancialView() {
                   </span>
                   <div className="flex gap-1 flex-wrap">
                     {transaction.status === "pending" && (
-                      <Button size="sm" variant="outline"
-                        className="bg-transparent text-green-600 border-green-300 hover:bg-green-50 gap-1"
-                        onClick={() => handleUpdateStatus(transaction.id, "paid")}>
-                        <CheckCircle className="h-3 w-3" /> Confirmar
-                      </Button>
-                    )}
-                    {transaction.status !== "cancelled" && transaction.status !== "paid" && (
-                      <Button size="sm" variant="outline"
-                        className="bg-transparent text-destructive border-destructive/30 hover:bg-destructive/10 gap-1"
-                        onClick={() => handleUpdateStatus(transaction.id, "cancelled")}>
-                        <XCircle className="h-3 w-3" /> Cancelar
+                      <Button size="sm"
+                        className="gap-1.5"
+                        disabled={updatingId === transaction.id}
+                        onClick={() => openReceiveDialog(transaction)}>
+                        <Wallet className="h-3.5 w-3.5" /> Receber
                       </Button>
                     )}
                   </div>
@@ -574,6 +596,71 @@ export function FinancialView() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={transactionToReceive !== null} onOpenChange={(open) => { if (!open && !updatingId) setTransactionToReceive(null) }}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Receber pagamento</DialogTitle>
+            <DialogDescription>
+              Confirme a forma escolhida pelo paciente no momento do pagamento.
+            </DialogDescription>
+          </DialogHeader>
+
+          {transactionToReceive && (
+            <div className="space-y-5 py-2">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-medium">{transactionToReceive.patient?.full_name || "Paciente"}</p>
+                    <p className="text-sm text-muted-foreground">{transactionToReceive.description || "Atendimento odontológico"}</p>
+                  </div>
+                  <p className="text-lg font-bold whitespace-nowrap">{formatCurrency(transactionToReceive.amount || 0)}</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Como o paciente pagou? *</Label>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {PAYMENT_METHODS.map(({ value, label, icon: Icon }) => (
+                    <button
+                      type="button"
+                      key={value}
+                      onClick={() => { setReceiveMethod(value); setReceiveError(null) }}
+                      className={`flex min-h-20 flex-col items-center justify-center gap-2 rounded-lg border px-2 py-3 text-sm transition-colors ${receiveMethod === value ? "border-primary bg-primary/10 text-primary ring-1 ring-primary" : "hover:bg-muted"}`}
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span className="text-center leading-tight">{label}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">Mostre somente formas que a clínica realmente aceita.</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="receive-date">Data do recebimento</Label>
+                <div className="relative">
+                  <CalendarDays className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input id="receive-date" type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} className="pl-9" />
+                </div>
+              </div>
+
+              {receiveError && (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{receiveError}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" disabled={updatingId !== null} onClick={() => setTransactionToReceive(null)}>Voltar</Button>
+            <Button disabled={updatingId !== null || !transactionToReceive} onClick={handleReceive}>
+              {updatingId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+              Confirmar recebimento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

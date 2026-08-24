@@ -1,5 +1,6 @@
 import { getAuthenticatedClient } from "@/lib/supabase/api-helper"
 import { NextResponse } from "next/server"
+import { stripImmutableTenantFields } from "@/lib/security/request-data"
 
 export async function PATCH(
   request: Request,
@@ -10,7 +11,7 @@ export async function PATCH(
   const { supabase, user } = result as any
   const { id } = await params
 
-  const body = await request.json()
+  const body = stripImmutableTenantFields(await request.json())
 
   const { data, error } = await supabase
     .from("financial_transactions")

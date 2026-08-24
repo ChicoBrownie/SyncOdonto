@@ -1,5 +1,8 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
+import { stripImmutableTenantFields } from "@/lib/security/request-data"
+import { getLocalDate, getLocalMinutes, hasTimeConflict, parseMinutes } from "@/lib/appointments/scheduling"
+import { patientBelongsToClinic } from "@/lib/security/clinic-data"
 
 export async function GET(request: Request) {
   const result = await getClinicScopedClient()
@@ -30,45 +33,19 @@ export async function GET(request: Request) {
   return NextResponse.json({ data })
 }
 
-function parseMinutes(time: string): number {
-  const [h, m] = time.split(":").map(Number)
-  return h * 60 + m
-}
-
-function hasTimeConflict(startA: string, durationA: number, startB: string, durationB: number): boolean {
-  const startAMin = parseMinutes(startA)
-  const endAMin = startAMin + durationA
-  const startBMin = parseMinutes(startB)
-  const endBMin = startBMin + durationB
-  return startAMin < endBMin && startBMin < endAMin
-}
-
-// FIX BUG 4: retorna data local no fuso de Brasília (UTC-3)
-function getTodayBrasilia(): string {
-  const now = new Date()
-  // Ajusta para UTC-3
-  const offset = -3 * 60
-  const localTime = new Date(now.getTime() + (offset - now.getTimezoneOffset()) * 60_000)
-  return localTime.toISOString().split("T")[0]
-}
-
-function getNowMinutesBrasilia(): number {
-  const now = new Date()
-  const offset = -3 * 60
-  const localTime = new Date(now.getTime() + (offset - now.getTimezoneOffset()) * 60_000)
-  return localTime.getHours() * 60 + localTime.getMinutes()
-}
-
 export async function POST(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
   const { supabase, ownerId } = result as any
 
-  const body = await request.json()
+  const body = stripImmutableTenantFields(await request.json())
 
   // Validações básicas
   if (!body.patient_id) {
     return NextResponse.json({ error: "Paciente é obrigatório." }, { status: 400 })
+  }
+  if (!(await patientBelongsToClinic(supabase, body.patient_id, ownerId))) {
+    return NextResponse.json({ error: "Paciente não pertence à clínica." }, { status: 403 })
   }
   if (!body.doctor_name || body.doctor_name.trim() === "") {
     return NextResponse.json({ error: "Dentista responsável é obrigatório." }, { status: 400 })
@@ -83,7 +60,7 @@ export async function POST(request: Request) {
   const duration = body.duration_minutes ?? 60
 
   // FIX BUG 4: usa data de Brasília para comparação
-  const today = getTodayBrasilia()
+  const today = getLocalDate()
 
   if (body.date < today) {
     return NextResponse.json({ error: "Não é possível agendar em datas passadas." }, { status: 400 })
@@ -91,7 +68,7 @@ export async function POST(request: Request) {
 
   // FIX BUG 1: compara minutos sem adicionar buffer de horas
   if (body.date === today) {
-    const nowMinutes = getNowMinutesBrasilia()
+    const nowMinutes = getLocalMinutes()
     const apptMinutes = parseMinutes(body.time)
     if (apptMinutes <= nowMinutes) {
       return NextResponse.json({ error: "Não é possível agendar para um horário que já passou." }, { status: 400 })

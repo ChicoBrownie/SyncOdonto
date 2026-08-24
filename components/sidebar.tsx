@@ -8,23 +8,18 @@ import {
   LayoutDashboard,
   Users,
   Calendar,
-  FileStack,
   Building2,
-  BarChart3,
   Leaf,
   X,
-  DollarSign,
 } from "lucide-react"
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", href: "/" },
+  { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
   { icon: Users, label: "Lista de Pacientes", href: "/pacientes" },
   { icon: Calendar, label: "Agenda Inteligente", href: "/agenda" },
-  { icon: FileStack, label: "Gestão Paperless", href: "/gestao-paperless" },
   { icon: Building2, label: "Gestão da Clínica", href: "/gestao-clinica" },
-  { icon: BarChart3, label: "Relatórios", href: "/relatorios" },
 ]
 
 interface SidebarProps {

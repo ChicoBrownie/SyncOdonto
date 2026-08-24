@@ -18,12 +18,18 @@ export async function POST() {
     return NextResponse.json({ error: "Usuário sem email." }, { status: 400 })
   }
 
+  const invitedBy = user.user_metadata?.invited_by
+  if (typeof invitedBy !== "string" || !invitedBy) {
+    return NextResponse.json({ error: "Convite de clínica inválido ou ausente." }, { status: 403 })
+  }
+
   const adminClient = getServiceClient()
 
   const { data, error } = await adminClient
     .from("clinic_staff")
     .update({ auth_user_id: user.id })
     .eq("email", user.email)
+    .eq("user_id", invitedBy)
     .is("auth_user_id", null)
     .select()
 

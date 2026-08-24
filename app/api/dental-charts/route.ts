@@ -1,5 +1,6 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
+import { patientBelongsToClinic } from "@/lib/security/clinic-data"
 
 export async function GET(request: Request) {
   const result = await getClinicScopedClient()
@@ -36,6 +37,9 @@ export async function POST(request: Request) {
 
   if (!body.patient_id || body.tooth_number === undefined || body.tooth_number === null || !body.condition) {
     return NextResponse.json({ error: "Dados incompletos para salvar o dente" }, { status: 400 })
+  }
+  if (!(await patientBelongsToClinic(supabase, body.patient_id, ownerId))) {
+    return NextResponse.json({ error: "Paciente não pertence à clínica." }, { status: 403 })
   }
 
   const { data, error } = await supabase

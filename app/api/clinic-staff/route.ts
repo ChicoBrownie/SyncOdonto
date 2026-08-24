@@ -3,6 +3,7 @@ import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { createClient } from "@supabase/supabase-js"
 import { generateTempPassword } from "@/lib/utils/generate-password"
 import { sendStaffCredentialsEmail } from "@/lib/email/send-staff-credentials"
+import { isClinicManager, stripImmutableTenantFields } from "@/lib/security/request-data"
 
 function getServiceClient() {
   return createClient(
@@ -59,7 +60,11 @@ export async function GET() {
 export async function POST(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, user, ownerId } = result as any
+  const { supabase, user, ownerId, accessRole } = result as any
+
+  if (!isClinicManager(accessRole)) {
+    return NextResponse.json({ error: "Apenas o gestor da clínica pode adicionar membros." }, { status: 403 })
+  }
 
   const body = await request.json()
   const { full_name, role, specialty, email, phone, access_role, permissions, password: providedPassword } = body
@@ -204,10 +209,16 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId } = result as any
+  const { supabase, ownerId, accessRole } = result as any
+
+  if (!isClinicManager(accessRole)) {
+    return NextResponse.json({ error: "Apenas o gestor da clínica pode alterar membros." }, { status: 403 })
+  }
 
   const body = await request.json()
-  const { id, ...updates } = body
+  const { id } = body
+  const updates = stripImmutableTenantFields(body)
+  delete updates.auth_user_id
 
   if (typeof id === "string" && id.startsWith("owner-")) {
     return NextResponse.json({ error: "O gestor principal não pode ser editado por aqui." }, { status: 400 })

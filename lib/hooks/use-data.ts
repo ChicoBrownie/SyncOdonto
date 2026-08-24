@@ -24,7 +24,10 @@ const fetcher = async (url: string) => {
 
 // Dashboard
 export function useDashboard() {
-  const { data, error, isLoading, mutate } = useSWR("/api/dashboard", fetcher)
+  const { data, error, isLoading, mutate } = useSWR("/api/dashboard", fetcher, {
+    refreshInterval: 15_000,
+    revalidateOnFocus: true,
+  })
   return {
     stats: data?.stats as DashboardStats | undefined,
     upcomingAppointments: data?.upcomingAppointments as Appointment[] | undefined,

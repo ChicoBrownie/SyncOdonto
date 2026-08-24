@@ -1,5 +1,6 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
+import { stripImmutableTenantFields } from "@/lib/security/request-data"
 
 export async function GET(
   request: Request,
@@ -33,7 +34,7 @@ export async function PATCH(
   const { supabase, ownerId } = result as any
   const { id } = await params
 
-  const body = await request.json()
+  const body = stripImmutableTenantFields(await request.json())
 
   const { data, error } = await supabase
     .from("patients")

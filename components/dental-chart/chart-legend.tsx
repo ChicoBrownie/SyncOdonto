@@ -7,7 +7,7 @@ export function ChartLegend() {
       <CardContent className="p-4">
         <p className="text-sm font-medium text-foreground mb-3">Legenda de Condicoes</p>
         <div className="flex flex-wrap gap-x-5 gap-y-2">
-          {CONDITIONS.filter(c => c.value !== "none").map((item) => (
+          {CONDITIONS.map((item) => (
             <div key={item.value} className="flex items-center gap-2">
               <div className={`h-3.5 w-3.5 rounded-full ${item.dotColor}`} />
               <span className="text-sm text-muted-foreground">{item.label}</span>
