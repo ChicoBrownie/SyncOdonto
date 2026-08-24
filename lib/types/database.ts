@@ -19,8 +19,10 @@ export type Patient = {
   address: string | null
   medical_history: any | null
   allergies: string | null
+  pre_existing_conditions: string | null
+  medications: string | null
   notes: string | null
-  status: 'active' | 'inactive'
+  status: 'Ativo' | 'Inativo' | 'Em Tratamento' | 'active' | 'inactive'
   created_at: string
   updated_at: string
 }
@@ -100,8 +102,9 @@ export type AIAnalysis = {
   patient_id: string | null
   user_id: string
   analysis_type: string
-  status: 'processing' | 'completed' | 'error'
+  status: 'pending' | 'processing' | 'completed' | 'error' | 'failed'
   confidence: number | null
+  confidence_score: number | null
   findings: AIFinding[] | null
   recommendations: any[] | null
   image_url: string | null
@@ -115,6 +118,7 @@ export type AIFinding = {
   description: string
   severity: 'low' | 'medium' | 'high'
   location?: string
+  tooth_number?: number
   confidence: number
   recommendation?: string
 }
@@ -144,6 +148,8 @@ export type FinancialTransaction = {
   status: 'pending' | 'paid' | 'cancelled'
   due_date: string | null
   paid_date: string | null
+  verification_status?: 'pending_verification' | 'confirmed' | 'incorrect' | null
+  source_appointment_id?: string | null
   created_at: string
 }
 

@@ -19,12 +19,20 @@ export async function getClinicScopedClient() {
 
     const { data: staff } = await serviceClient
       .from("clinic_staff")
-      .select("user_id, access_role, permissions")
+      .select("user_id, access_role, permissions, is_active")
       .eq("auth_user_id", user.id)
       .maybeSingle()
 
+    if (staff?.is_active === false) {
+      return { error: NextResponse.json({ error: "Acesso desativado pelo gestor da clínica." }, { status: 403 }) }
+    }
+
     const ownerId = staff?.user_id ?? user.id
-    const accessRole = staff?.access_role ?? "gestor"
+    const accessRole = staff
+      ? staff.access_role === "gestor" || staff.access_role === "dentista" || staff.access_role === "recepcionista"
+        ? staff.access_role
+        : "recepcionista"
+      : "gestor"
     
     const permissions = getEffectivePermissions(accessRole, staff?.permissions as any)
 

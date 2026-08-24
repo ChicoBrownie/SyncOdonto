@@ -1,5 +1,7 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
+import { stripImmutableTenantFields } from "@/lib/security/request-data"
+import { patientBelongsToClinic } from "@/lib/security/clinic-data"
 
 export async function GET(
   request: Request,
@@ -29,7 +31,10 @@ export async function PATCH(
   if ("error" in result && result.error) return result.error
   const { supabase, ownerId } = result as any
   const { id } = await params
-  const body = await request.json()
+  const body = stripImmutableTenantFields(await request.json())
+  if (body.patient_id && !(await patientBelongsToClinic(supabase, body.patient_id, ownerId))) {
+    return NextResponse.json({ error: "Paciente não pertence à clínica." }, { status: 403 })
+  }
 
   const { data, error } = await supabase
     .from("ai_analyses")

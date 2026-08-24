@@ -1,12 +1,10 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
-// ── ID do administrador autorizado a acessar este painel ───────────────────
-const ADMIN_USER_IDS = [
-  "9185a031-de69-4f9f-a4e1-24352cc7722f",
-  "f02efbc1-919c-4afa-a8b1-58cd90e7277b",
-  "ecc4b798-4abc-43af-b298-e9bba09312cb",
-]
+const ADMIN_USER_IDS = (process.env.ADMIN_USER_IDS || "")
+  .split(",")
+  .map((id) => id.trim())
+  .filter(Boolean)
 
 // Cliente com Service Role — ignora RLS, só usado neste arquivo de servidor
 function getServiceClient() {

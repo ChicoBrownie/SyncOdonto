@@ -1,5 +1,6 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { requirePermission } from "@/lib/permissions-server"
+import { stripImmutableTenantFields } from "@/lib/security/request-data"
 import { NextResponse } from "next/server"
 
 export async function GET() {
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
   const denied = requirePermission(permissions, "configuracoes")
   if (denied) return denied
 
-  const body = await request.json()
+  const body = stripImmutableTenantFields(await request.json())
 
   const { data: existing } = await supabase
     .from("clinic_settings")

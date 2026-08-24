@@ -34,7 +34,7 @@ export function getEffectivePermissions(
   const role: StaffAccessRole =
     accessRole === "gestor" || accessRole === "dentista" || accessRole === "recepcionista"
       ? accessRole
-      : "gestor"
+      : "recepcionista"
 
   if (role === "gestor") return { ...DEFAULT_PERMISSIONS.gestor }
 

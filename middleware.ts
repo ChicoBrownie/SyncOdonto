@@ -37,15 +37,23 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith(route)
   )
 
-  if (!isGestorOnly && !permissionEntry) return supabaseResponse
-
   const { data: staffRecord } = await supabase
     .from('clinic_staff')
-    .select('access_role, permissions')
+    .select('access_role, permissions, is_active')
     .eq('auth_user_id', user.id)
     .maybeSingle()
 
-  const accessRole = staffRecord?.access_role || 'gestor'
+  if (staffRecord?.is_active === false) {
+    return NextResponse.redirect(new URL('/auth/error?error=access_disabled', request.url))
+  }
+
+  if (!isGestorOnly && !permissionEntry) return supabaseResponse
+
+  const accessRole = staffRecord
+    ? staffRecord.access_role === 'gestor' || staffRecord.access_role === 'dentista' || staffRecord.access_role === 'recepcionista'
+      ? staffRecord.access_role
+      : 'recepcionista'
+    : 'gestor'
 
   if (isGestorOnly) {
     if (accessRole !== 'gestor') {

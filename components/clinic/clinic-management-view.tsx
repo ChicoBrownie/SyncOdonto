@@ -24,6 +24,9 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { FinancialView } from "@/components/reports/financial-view"
+import { ReportsView } from "@/components/reports/reports-view"
+import { DocumentManagementView } from "@/components/documents/document-management-view"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   DEFAULT_PERMISSIONS, getEffectivePermissions,
   type StaffAccessRole, type StaffPermissions,
@@ -52,7 +55,11 @@ type CredentialsInfo = {
 }
 
 export function ClinicManagementView() {
-  const [activeTab, setActiveTab] = useState<"equipe" | "financeiro" | "configuracoes">("equipe")
+  type ClinicTab = "equipe" | "financeiro" | "configuracoes" | "paperless" | "relatorios"
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const requestedTab = searchParams.get("tab") as ClinicTab | null
+  const [activeTab, setActiveTab] = useState<ClinicTab>(requestedTab || "equipe")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [editingMember, setEditingMember] = useState<any>(null)
@@ -78,10 +85,12 @@ export function ClinicManagementView() {
   // Antes a checagem era só "isGestor" — agora cada aba olha pra permissão
   // granular do usuário logado, que o próprio gestor configura por membro.
   const myPermissions: StaffPermissions = accessRes?.permissions || DEFAULT_PERMISSIONS.gestor
-  const visibleTabs = (["equipe", "financeiro", "configuracoes"] as const).filter((tab) => {
+  const visibleTabs = (["equipe", "financeiro", "configuracoes", "paperless", "relatorios"] as const).filter((tab) => {
     if (tab === "equipe") return true
     if (tab === "financeiro") return myPermissions.financeiro
     if (tab === "configuracoes") return myPermissions.configuracoes
+    if (tab === "relatorios") return myPermissions.relatorios
+    if (tab === "paperless") return true
     return false
   })
 
@@ -301,21 +310,29 @@ export function ClinicManagementView() {
     if (!visibleTabs.includes(activeTab)) setActiveTab("equipe")
   }, [visibleTabs, activeTab])
 
-  return (
-    <div className="p-4 md:p-6 lg:p-8 space-y-6">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-foreground">Gestão da Clínica</h1>
-        <p className="text-muted-foreground mt-1">Gerencie equipe, finanças e operações</p>
-      </div>
+  const selectTab = (tab: ClinicTab) => {
+    setActiveTab(tab)
+    router.replace(`/gestao-clinica?tab=${tab}`, { scroll: false })
+  }
 
+  const tabLabels: Record<ClinicTab, string> = {
+    equipe: "Equipe",
+    financeiro: "Financeiro",
+    configuracoes: "Configurações",
+    paperless: "Gestão Paperless",
+    relatorios: "Relatórios",
+  }
+
+  return (
+    <div className="px-4 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3 lg:px-8 lg:pb-8 lg:pt-4 space-y-5">
       {/* Tabs */}
       <div className="flex gap-2 border-b border-border overflow-x-auto">
         {visibleTabs.map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
+          <button key={tab} onClick={() => selectTab(tab)}
             className={`px-4 py-2 font-medium whitespace-nowrap capitalize ${
               activeTab === tab ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"
             }`}>
-            {tab === "equipe" ? "Equipe" : tab === "financeiro" ? "Financeiro" : "Configurações"}
+            {tabLabels[tab]}
           </button>
         ))}
       </div>
@@ -658,6 +675,18 @@ export function ClinicManagementView() {
               </Button>
             </>
           )}
+        </div>
+      )}
+
+      {activeTab === "paperless" && (
+        <div key="paperless" className="[&>div>div:first-child]:hidden">
+          <DocumentManagementView />
+        </div>
+      )}
+
+      {activeTab === "relatorios" && (
+        <div key="relatorios" className="-m-4 md:-m-6 lg:-m-8 [&>div>div:first-child]:hidden">
+          <ReportsView />
         </div>
       )}
     </div>

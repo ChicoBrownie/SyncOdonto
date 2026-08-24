@@ -1,6 +1,9 @@
+"use client"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, Calendar, Brain, BarChart3 } from "lucide-react"
+import { Users, Calendar, Brain, BarChart3, DollarSign, Loader2 } from "lucide-react"
 import Link from "next/link"
+import useSWR from "swr"
 
 const quickAccessItems = [
   {
@@ -30,18 +33,36 @@ const quickAccessItems = [
     href: "/relatorios",
     color: "text-warning",
     bgColor: "bg-warning/10",
+    permission: "relatorios" as const,
+  },
+  {
+    icon: DollarSign,
+    label: "Financeiro",
+    href: "/gestao-clinica?tab=financeiro",
+    color: "text-emerald-600",
+    bgColor: "bg-emerald-600/10",
+    permission: "financeiro" as const,
   },
 ]
 
 export function QuickAccess() {
+  const { data, isLoading } = useSWR("/api/auth/check-access", (url) =>
+    fetch(url).then((response) => response.ok ? response.json() : null)
+  )
+  const items = quickAccessItems.filter((item) =>
+    !("permission" in item) || data?.permissions?.[item.permission!]
+  )
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Acesso Rápido</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {quickAccessItems.map((item) => {
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {items.map((item) => {
             const Icon = item.icon
             return (
               <Link
@@ -56,7 +77,7 @@ export function QuickAccess() {
               </Link>
             )
           })}
-        </div>
+        </div>}
       </CardContent>
     </Card>
   )

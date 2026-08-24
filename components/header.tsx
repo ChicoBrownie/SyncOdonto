@@ -77,7 +77,10 @@ export function Header({ onMenuClick }: HeaderProps) {
               <DropdownMenuLabel>Minha Conta</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/gestao-clinica">Configuracoes</Link>
+                <Link href="/minha-conta"><User className="mr-2 h-4 w-4" />Minha Conta</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/gestao-clinica?tab=configuracoes">Configuracoes</Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={signOut} className="text-red-600">

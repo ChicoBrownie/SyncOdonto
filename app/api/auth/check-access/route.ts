@@ -19,11 +19,19 @@ export async function GET() {
 
   const { data: staffRecord } = await adminClient
     .from("clinic_staff")
-    .select("access_role, permissions")
+    .select("access_role, permissions, is_active")
     .eq("auth_user_id", user.id)
     .maybeSingle()
 
-  const access_role = staffRecord?.access_role || "gestor"
+  if (staffRecord?.is_active === false) {
+    return NextResponse.json({ error: "Acesso desativado pelo gestor da clínica." }, { status: 403 })
+  }
+
+  const access_role = staffRecord
+    ? staffRecord.access_role === "gestor" || staffRecord.access_role === "dentista" || staffRecord.access_role === "recepcionista"
+      ? staffRecord.access_role
+      : "recepcionista"
+    : "gestor"
   const permissions = getEffectivePermissions(access_role, staffRecord?.permissions as any)
 
   return NextResponse.json({ access_role, permissions, user_id: user.id })

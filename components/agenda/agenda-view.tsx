@@ -709,14 +709,14 @@ export function AgendaView() {
       {viewMode === "week" && (
         <Card>
           <CardHeader className="pb-3"><CardTitle className="text-base">Visão Semanal</CardTitle></CardHeader>
-          <CardContent><WeekView /></CardContent>
+          <CardContent>{WeekView()}</CardContent>
         </Card>
       )}
 
       {viewMode === "month" && (
         <Card>
           <CardHeader className="pb-3"><CardTitle className="text-base capitalize">{formatMonthYear(selectedDate)}</CardTitle></CardHeader>
-          <CardContent><MonthView /></CardContent>
+          <CardContent>{MonthView()}</CardContent>
         </Card>
       )}
 

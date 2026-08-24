@@ -28,8 +28,11 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <body className={`font-sans antialiased`}>
+    <html lang="pt-BR" translate="no" className="notranslate" suppressHydrationWarning>
+      <head>
+        <meta name="google" content="notranslate" />
+      </head>
+      <body className="font-sans antialiased notranslate" suppressHydrationWarning>
         {children}
         <Analytics />
       {/* v0 – built-with badge */}

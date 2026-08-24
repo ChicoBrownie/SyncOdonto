@@ -198,7 +198,7 @@ export function AnamnesisSection({ patientId }: AnamnesisSectionProps) {
           </div>
         ) : records.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-4">
-            Nenhuma anamnese registrada. Clique em "Nova Anamnese" para iniciar o primeiro atendimento.
+            Nenhuma anamnese registrada. Clique em &quot;Nova Anamnese&quot; para iniciar o primeiro atendimento.
           </p>
         ) : (
           records.map((record) => {

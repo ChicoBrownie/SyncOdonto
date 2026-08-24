@@ -30,7 +30,7 @@ import { CariesIndexChart } from "@/components/progress/caries-index-chart"
 import { PeriodontalHealthChart } from "@/components/progress/periodontal-health-chart"
 import { ComparisonChart } from "@/components/progress/comparison-chart"
 import { PatientAIAnalysis } from "./patient-ai-analysis"
-import { usePatient, updateAppointment, createFinancialTransaction } from "@/lib/hooks/use-data"
+import { usePatient, updateAppointment } from "@/lib/hooks/use-data"
 import useSWR from "swr"
 import Link from "next/link"
 import { toast } from "sonner"
@@ -45,8 +45,6 @@ const listFetcher = (url: string) => fetch(url).then(r => r.json()).then(d => d.
 // AttachedExams com a MESMA URL. O SWR compartilha cache por URL — se os fetchers
 // devolvessem formatos diferentes pra mesma chave, um dos dois lados quebra.
 const rawFetcher = (url: string) => fetch(url).then(r => r.json())
-
-const PAYMENT_METHODS = ["Espécie", "Cartão Débito", "Cartão Crédito", "Pix"]
 
 interface MedicalRecordViewProps {
   patientId: string
@@ -85,13 +83,11 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
   // ── Estado do modal de encerramento ──────────────────────────────────────
   const [closeOpen, setCloseOpen] = useState(false)
   const [closeModalCost, setCloseModalCost] = useState("")
-  const [closeModalPayment, setCloseModalPayment] = useState("")
   const [isClosing, setIsClosing] = useState(false)
   const [closeModalError, setCloseModalError] = useState<string | null>(null)
 
   const openCloseModal = useCallback(() => {
     setCloseModalCost(activeAppointment?.cost?.toString() || "")
-    setCloseModalPayment(activeAppointment?.payment_method || "")
     setCloseModalError(null)
     setCloseOpen(true)
   }, [activeAppointment])
@@ -103,28 +99,12 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
       setCloseModalError("Informe o valor da consulta para continuar.")
       return
     }
-    if (!closeModalPayment) {
-      setCloseModalError("Selecione a forma de pagamento.")
-      return
-    }
     setCloseModalError(null)
     setIsClosing(true)
     try {
       await updateAppointment(activeAppointment.id, {
         status: "Concluída",
         cost: amount,
-        payment_method: closeModalPayment,
-      } as any)
-
-      await createFinancialTransaction({
-        patient_id: patientId,
-        description: `Consulta - ${activeAppointment.procedure_type || "Consulta"} (${patient?.full_name || ""})`,
-        amount,
-        payment_method: closeModalPayment,
-        type: "income",
-        status: "pending",
-        verification_status: "pending_verification",
-        source_appointment_id: activeAppointment.id,
       } as any)
 
       toast.success("Consulta encerrada e lançada no financeiro!")
@@ -258,7 +238,7 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
           <DialogHeader>
             <DialogTitle>Encerrar consulta</DialogTitle>
             <DialogDescription>
-              Confirme o pagamento de <strong>{patient.full_name}</strong> para encerrar o atendimento e lançar no financeiro.
+              Informe o valor devido por <strong>{patient.full_name}</strong>. A forma de pagamento será escolhida no Financeiro, no momento do recebimento.
             </DialogDescription>
           </DialogHeader>
 
@@ -283,18 +263,8 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
               />
             </div>
 
-            <div className="grid gap-2">
-              <Label>Forma de pagamento *</Label>
-              <Select value={closeModalPayment} onValueChange={(v) => { setCloseModalPayment(v); setCloseModalError(null) }}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>
-                  {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-
             <p className="text-xs text-muted-foreground">
-              O valor será lançado no <strong>Financeiro</strong> como pendente de verificação no Fechamento de Caixa.
+              O valor será lançado em <strong>Contas a receber</strong>. Nenhum pagamento será registrado até a equipe clicar em “Receber”.
             </p>
           </div>
 

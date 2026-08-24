@@ -1,80 +1,91 @@
-# UniversalFileViewer
+# SyncOdonto
 
-Componente React/TypeScript que detecta o tipo de arquivo odontológico (malha 3D, exame DICOM,
-PDF ou imagem) e delega para o visualizador especializado correto.
+Sistema web para gestão de clínicas odontológicas. O projeto reúne frontend e backend em uma única aplicação Next.js e utiliza Supabase para banco de dados, autenticação e armazenamento privado de documentos.
 
-## Estrutura
+## Funcionalidades
 
-```
-UniversalFileViewer/
-├── UniversalFileViewer.tsx   # componente roteador: dropzone, loading, delega ao viewer certo
-├── types.ts                  # tipos compartilhados + detecção de extensão
-├── index.ts                  # export barrel
-├── hooks/
-│   └── useFileSource.ts      # normaliza File | string em URL resolvida + tipo detectado
-└── viewers/
-    ├── MeshViewer.tsx        # .stl / .obj / .ply via three.js + OrbitControls
-    ├── DicomViewer.tsx       # .dcm / .dicom via cornerstone.js
-    ├── DocumentViewer.tsx    # .pdf via pdfjs-dist
-    └── ImageViewer.tsx       # .jpg / .jpeg / .png / .webp com zoom/pan nativo
-```
+- cadastro e acompanhamento de pacientes;
+- agenda e controle do ciclo das consultas;
+- prontuário, anamnese e odontograma;
+- tratamentos e evolução clínica;
+- documentos, orçamentos, TCLE e assinatura digital;
+- gestão financeira e relatórios;
+- equipe com perfis de gestor, dentista e recepcionista;
+- notificações por e-mail e integração opcional com WhatsApp;
+- visualização de imagens, PDF, DICOM e malhas 3D.
 
-## Instalação de dependências
+## Arquitetura resumida
+
+| Camada | Tecnologia |
+| --- | --- |
+| Interface | Next.js 16, React 19 e Tailwind CSS |
+| Backend | Route Handlers do Next.js em `app/api` |
+| Banco e autenticação | Supabase/PostgreSQL e Supabase Auth |
+| Arquivos | Supabase Storage, bucket privado `documentos-clinica` |
+| E-mail | Resend |
+| Publicação | Netlify com `@netlify/plugin-nextjs` |
+
+O projeto é um monorepositório de aplicação única: páginas e APIs são publicadas juntas. Supabase e os demais provedores permanecem como serviços externos.
+
+Mais detalhes estão em [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) e [docs/SECURITY.md](docs/SECURITY.md).
+
+## Preparação local
+
+Requisitos:
+
+- Node.js 22 ou superior;
+- projeto Supabase configurado;
+- credenciais dos serviços opcionais conforme `.env.example`.
+
+Instale as dependências e prepare as variáveis:
 
 ```bash
-npm install three
-npm install cornerstone-core cornerstone-wado-image-loader dicom-parser
-npm install pdfjs-dist
-npm install --save-dev @types/three
+npm install
+copy .env.example .env.local
 ```
 
-> `cornerstone-wado-image-loader` usa web workers; em bundlers como Vite/Webpack pode ser
-> necessário configurar `worker-loader` ou copiar os workers para `public/` — consulte a doc
-> da lib para a versão do seu bundler.
+Preencha `.env.local` sem publicar esse arquivo no Git. Em seguida:
 
-> Em `DocumentViewer.tsx`, a importação do worker do PDF.js (`pdf.worker.min.mjs?url`) usa a
-> sintaxe do Vite. Em CRA/Webpack, troque por `import 'pdfjs-dist/build/pdf.worker.entry'` ou
-> aponte `GlobalWorkerOptions.workerSrc` para um CDN (ex: `https://unpkg.com/pdfjs-dist@.../pdf.worker.min.mjs`).
-
-## Uso básico
-
-```tsx
-import { UniversalFileViewer } from './UniversalFileViewer';
-
-function ExamAttachment() {
-  return (
-    <div style={{ width: 640, height: 480 }}>
-      <UniversalFileViewer
-        onFileSelected={(file) => console.log('Arquivo selecionado:', file.name)}
-        onError={(err) => console.error(err)}
-      />
-    </div>
-  );
-}
+```bash
+npm run dev
 ```
 
-### Com arquivo já hospedado (ex: vindo do prontuário)
+## Banco de dados
 
-```tsx
-<UniversalFileViewer
-  file="https://cdn.suaclinica.com/exames/paciente-123/panoramica.dcm"
-  fileName="panoramica.dcm"
-/>
+Os scripts SQL estão em `scripts/` e devem ser aplicados em ordem numérica:
+
+1. `001_create_tables.sql`
+2. `002_phone_change_otps.sql`
+3. `003_paperless_management.sql`
+4. `004_paperless_templates.sql`
+
+Antes de executar os scripts em uma base existente, faça backup e revise as diferenças no Supabase. Os scripts não substituem uma estratégia formal de migrações e não devem ser reaplicados cegamente em produção.
+
+## Verificações obrigatórias
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
 
-## Notas de design
+O build não ignora mais erros de TypeScript. O lint possui algumas advertências legadas não bloqueantes, que devem ser reduzidas gradualmente.
 
-- **Roteamento por extensão**: `types.ts` centraliza o mapa extensão → tipo de viewer
-  (`EXTENSION_TO_KIND`). Adicionar suporte a um novo formato é uma linha nesse mapa + um
-  novo componente em `viewers/`.
-- **Estado de loading unificado**: cada viewer reporta progresso via `onProgress`, então a
-  barra de carregamento no componente pai funciona igual para os 4 tipos, mesmo que a origem
-  do progresso seja diferente (bytes de rede no PDF/malha, decodificação no DICOM, `<img onLoad>`
-  na imagem).
-- **Limpeza de recursos**: `MeshViewer` descarta geometrias/materiais/renderer do three.js no
-  unmount; `useFileSource` revoga `URL.createObjectURL` quando o arquivo muda; `DicomViewer`
-  desabilita o elemento cornerstone no unmount. Isso evita vazamento de memória ao trocar de
-  anexo repetidamente dentro do prontuário.
-- **STL sem cor**: aplica material padrão "resina/gesso" (bege neutro) quando a geometria não
-  traz `vertex colors`, já que STL raramente carrega cor.
-  
+## Publicação
+
+O arquivo `netlify.toml` já configura o build Next.js na Netlify. Configure no painel as mesmas variáveis usadas localmente, além das URLs autorizadas no Supabase Auth.
+
+Para usar o painel global `/admin`, defina `ADMIN_USER_IDS` com os UUIDs autorizados separados por vírgula. Sem essa variável, o painel falha de forma segura e não libera nenhum administrador global.
+
+Ao conectar um domínio próprio:
+
+1. adicione o domínio ao projeto da Netlify;
+2. configure os registros DNS solicitados;
+3. ajuste `NEXT_PUBLIC_SITE_URL`;
+4. atualize as URLs de redirecionamento no Supabase Auth;
+5. teste login, recuperação de senha, convite de equipe e HTTPS.
+
+## Dados sensíveis
+
+O SyncOdonto manipula dados pessoais, clínicos e financeiros. Não utilize dados reais antes de revisar permissões, backup, retenção, auditoria, política de privacidade e os requisitos aplicáveis da LGPD.

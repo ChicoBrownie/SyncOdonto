@@ -1,5 +1,8 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
+import { createSimplePdf } from "@/lib/documents/simple-pdf"
+
+const STORAGE_BUCKET = "documentos-clinica"
 
 export async function GET(request: Request) {
   const result = await getClinicScopedClient()
@@ -27,17 +30,63 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId } = result as any
+  const { supabase, ownerId, user } = result as any
 
   const body = await request.json()
 
+  if (!body.title || !body.document_type) {
+    return NextResponse.json({ error: "Título e tipo do documento são obrigatórios" }, { status: 400 })
+  }
+
+  if (body.patient_id) {
+    const { data: patient } = await supabase.from("patients").select("id").eq("id", body.patient_id).eq("user_id", ownerId).maybeSingle()
+    if (!patient) return NextResponse.json({ error: "Paciente não pertence à clínica" }, { status: 403 })
+  }
+
+  let storagePath = body.storage_path || null
+  if (storagePath && !storagePath.startsWith(`${user.id}/`)) {
+    return NextResponse.json({ error: "Caminho de arquivo inválido" }, { status: 403 })
+  }
+  if (body.generate_pdf) {
+    const documentId = crypto.randomUUID()
+    storagePath = `${ownerId}/generated/${documentId}.pdf`
+    const pdf = createSimplePdf(body.title, body.content || body.description || "")
+    const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, pdf, { contentType: "application/pdf", upsert: false })
+    if (uploadError) return NextResponse.json({ error: `Erro ao gerar PDF: ${uploadError.message}` }, { status: 500 })
+  }
+
+  const allowed = {
+    patient_id: body.patient_id || null,
+    title: body.title,
+    document_type: body.document_type,
+    description: body.description || null,
+    procedure: body.procedure || null,
+    status: body.status || (body.signed ? "signed" : "pending"),
+    signed: Boolean(body.signed),
+    signed_at: body.signed ? new Date().toISOString() : null,
+    signature_data: body.signature_data || null,
+    content: body.content || null,
+    storage_path: storagePath,
+    file_url: storagePath,
+    file_type: body.generate_pdf ? "application/pdf" : body.file_type || null,
+    file_size: body.file_size || null,
+    lead_name: body.lead_name || null,
+    lead_phone: body.lead_phone || null,
+    items: body.items || null,
+    total_amount: body.total_amount ?? null,
+    payment_method: body.payment_method || null,
+  }
+
   const { data, error } = await supabase
     .from("documents")
-    .insert({ ...body, user_id: ownerId })
+    .insert({ ...allowed, user_id: ownerId })
     .select()
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    if (body.generate_pdf && storagePath) await supabase.storage.from(STORAGE_BUCKET).remove([storagePath])
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
   return NextResponse.json({ data })
 }
 

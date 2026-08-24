@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { Users, CheckCircle, Brain, Calendar, Loader2 } from "lucide-react"
+import { Users, CheckCircle, Calendar, Loader2 } from "lucide-react"
 import { useDashboard } from "@/lib/hooks/use-data"
 
 export function DashboardStats() {
@@ -9,8 +9,8 @@ export function DashboardStats() {
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[...Array(4)].map((_, i) => (
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[...Array(3)].map((_, i) => (
           <Card key={i}>
             <CardContent className="p-6 flex items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -46,18 +46,10 @@ export function DashboardStats() {
       color: "text-amber-600",
       bgColor: "bg-amber-600/10",
     },
-    {
-      icon: Brain,
-      label: "Analises com IA",
-      value: stats?.aiAnalysesToday?.toString() || "0",
-      subtitle: "Realizadas hoje",
-      color: "text-purple-600",
-      bgColor: "bg-purple-600/10",
-    },
   ]
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-3">
       {statsData.map((stat) => {
         const Icon = stat.icon
         return (

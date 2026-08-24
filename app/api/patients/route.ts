@@ -1,5 +1,6 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
+import { stripImmutableTenantFields } from "@/lib/security/request-data"
 
 export async function GET(request: Request) {
   const result = await getClinicScopedClient()
@@ -20,7 +21,8 @@ export async function GET(request: Request) {
     .range(offset, offset + limit - 1)
 
   if (search) {
-    query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`)
+    const safeSearch = search.replace(/[,%()]/g, "")
+    query = query.or(`full_name.ilike.%${safeSearch}%,cpf.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`)
   }
 
   if (status && status !== "all") {
@@ -41,7 +43,7 @@ export async function POST(request: Request) {
   if ("error" in result && result.error) return result.error
   const { supabase, ownerId } = result as any
 
-  const body = await request.json()
+  const body = stripImmutableTenantFields(await request.json())
 
   const { data, error } = await supabase
     .from("patients")

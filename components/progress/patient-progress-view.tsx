@@ -87,12 +87,12 @@ export function PatientProgressView() {
 
       {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <CariesIndexChart />
-        <PeriodontalHealthChart />
+        <CariesIndexChart data={[]} />
+        <PeriodontalHealthChart data={[]} />
       </div>
 
       {/* Comparison Chart */}
-      <ComparisonChart />
+      <ComparisonChart treatments={[]} />
     </div>
   )
 }

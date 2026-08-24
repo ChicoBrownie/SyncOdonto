@@ -3,11 +3,38 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Calendar, Clock, Loader2, Plus } from "lucide-react"
-import { useDashboard } from "@/lib/hooks/use-data"
+import { updateAppointment, useDashboard } from "@/lib/hooks/use-data"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { useState } from "react"
+import { toast } from "sonner"
 
 export function UpcomingAppointments() {
-  const { upcomingAppointments, isLoading } = useDashboard()
+  const { upcomingAppointments, isLoading, mutate } = useDashboard()
+  const [startingId, setStartingId] = useState<string | null>(null)
+  const router = useRouter()
+
+  const startAppointment = async (appointment: any) => {
+    setStartingId(appointment.id)
+    const current = upcomingAppointments || []
+    await mutate(
+      (cached: any) => ({
+        ...cached,
+        upcomingAppointments: (cached?.upcomingAppointments || []).filter((item: any) => item.id !== appointment.id),
+      }),
+      { revalidate: false }
+    )
+    try {
+      await updateAppointment(appointment.id, { status: "Em Andamento" } as any)
+      await mutate()
+      router.push(`/prontuario/${appointment.patient_id}`)
+    } catch (error) {
+      await mutate((cached: any) => ({ ...cached, upcomingAppointments: current }), { revalidate: false })
+      toast.error(error instanceof Error ? error.message : "Não foi possível iniciar o atendimento")
+    } finally {
+      setStartingId(null)
+    }
+  }
 
   const formatTime = (timeString: string) => {
     if (!timeString) return "--:--"
@@ -72,19 +99,14 @@ export function UpcomingAppointments() {
                   </p>
                 </div>
               </div>
-              {appointment.status === "Concluída" ? (
-                <span className="text-xs text-muted-foreground px-3 py-1.5 rounded-md bg-muted">
-                  Encerrado
-                </span>
-              ) : appointment.status === "Cancelada" ? (
-                <span className="text-xs text-red-600 px-3 py-1.5 rounded-md bg-red-50">
-                  Cancelada
-                </span>
-              ) : (
-                <Link href={`/prontuario/${appointment.patient_id}`}>
-                  <Button size="sm">Iniciar</Button>
-                </Link>
-              )}
+              <Button
+                size="sm"
+                disabled={startingId === appointment.id}
+                onClick={() => startAppointment(appointment)}
+              >
+                {startingId === appointment.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Iniciar
+              </Button>
             </div>
           ))
         )}
