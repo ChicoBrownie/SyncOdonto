@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import useSWR from "swr"
@@ -68,7 +69,9 @@ function SidebarContent({
   showClose: boolean
 }) {
   const { data: accessRes } = useSWR("/api/auth/check-access", fetcher)
+  const { data: sustainabilityRes } = useSWR("/api/sustainability-metrics", fetcher)
   const isGestor = (accessRes?.access_role || "gestor") === "gestor"
+  const savedSheets = Number(sustainabilityRes?.data?.month?.sheets || 0)
 
   return (
     <div className="flex h-full flex-col">
@@ -76,9 +79,11 @@ function SidebarContent({
       <div className="flex items-center justify-between gap-2 border-b border-border px-6 py-4">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary overflow-hidden">
-            <img
+            <Image
               src="/icon.png"
               alt="SyncOdonto"
+              width={32}
+              height={32}
               className="h-8 w-8 object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = "none"
@@ -129,9 +134,10 @@ function SidebarContent({
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-success">Impacto Sustentável</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Este mês você economizou{" "}
-                <span className="font-semibold text-foreground">2.847 folhas de papel</span>{" "}
-                🌱
+                {savedSheets > 0 ? <>
+                  Este mês a clínica evitou o uso estimado de{" "}
+                  <span className="font-semibold text-foreground">{savedSheets.toLocaleString("pt-BR")} {savedSheets === 1 ? "folha" : "folhas"} de papel</span> 🌱
+                </> : "O impacto aparecerá após a emissão de documentos digitais."}
               </p>
             </div>
           </div>

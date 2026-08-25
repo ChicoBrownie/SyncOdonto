@@ -2,8 +2,8 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FileImage, FileText, Plus, Loader2, Trash2, Upload, X } from "lucide-react"
-import { useState, useRef } from "react"
+import { Camera, FileImage, FileText, Plus, Loader2, Mail, Trash2, Upload, X } from "lucide-react"
+import { useEffect, useState, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import useSWR from "swr"
 import {
@@ -36,6 +36,7 @@ interface Exam {
   title: string
   exam_type: string
   file_url: string | null
+  storage_path?: string | null
   created_at: string
 }
 
@@ -46,12 +47,7 @@ const fetcher = async (url: string) => {
 }
 
 // Bucket privado no Supabase Storage. Precisa bater exatamente com o nome criado no dashboard.
-const STORAGE_BUCKET = "documents"
-
-// URL assinada válida por 1 ano. Se precisar que o link sempre reflita permissões atuais
-// (ex: revogar acesso a um exame específico), gere a signed URL sob demanda no momento
-// de exibir o arquivo em vez de salvar uma URL de validade longa no banco.
-const SIGNED_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 365
+const STORAGE_BUCKET = "documentos-clinica"
 
 export function AttachedExams({ patientId }: AttachedExamsProps) {
   const { data, isLoading, mutate } = useSWR(`/api/documents?patient_id=${patientId}&document_type=exam`, fetcher)
@@ -62,9 +58,79 @@ export function AttachedExams({ patientId }: AttachedExamsProps) {
   const [examType, setExamType] = useState("Radiografia")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const [cameraLoading, setCameraLoading] = useState(false)
+  const [sendingId, setSendingId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   const exams: Exam[] = data?.data || []
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    setCameraOpen(false)
+  }
+
+  useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), [])
+  useEffect(() => {
+    if (cameraOpen && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      void videoRef.current.play()
+    }
+  }, [cameraOpen])
+
+  const startCamera = async () => {
+    setCameraLoading(true)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+      streamRef.current = stream
+      setCameraOpen(true)
+    } catch {
+      toast.error("Não foi possível abrir a câmera. Conecte a SKYcam e permita o acesso no navegador.")
+    } finally { setCameraLoading(false) }
+  }
+
+  const capturePhoto = () => {
+    const video = videoRef.current
+    if (!video?.videoWidth) return toast.error("A imagem da câmera ainda não está pronta.")
+    const canvas = document.createElement("canvas")
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight
+    canvas.getContext("2d")?.drawImage(video, 0, 0)
+    canvas.toBlob((blob) => {
+      if (!blob) return toast.error("Não foi possível capturar a imagem.")
+      setSelectedFile(new File([blob], `foto-intraoral-${Date.now()}.jpg`, { type: "image/jpeg" }))
+      setTitle((value) => value || "Fotografia intraoral")
+      setExamType("Fotografia intraoral")
+      stopCamera()
+      toast.success("Imagem capturada. Revise e clique em Adicionar.")
+    }, "image/jpeg", 0.92)
+  }
+
+  const sendExam = async (exam: Exam) => {
+    setSendingId(exam.id)
+    try {
+      const response = await fetch(`/api/documents/${exam.id}/email`, { method: "POST" })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "Não foi possível enviar o exame")
+      toast.success(result.message || "Exame enviado ao paciente.")
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Erro ao enviar exame") }
+    finally { setSendingId(null) }
+  }
+
+  const openExam = async (exam: Exam) => {
+    try {
+      const response = await fetch(`/api/documents/${exam.id}/signed-url`)
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "Não foi possível abrir o arquivo")
+      const url: string = result.data?.url
+      if (!url) throw new Error("O arquivo não possui um link disponível")
+      const kind = resolveViewerKind(url.split("?")[0])
+      if (kind === "document" || kind === "image") window.open(url, "_blank", "noopener,noreferrer")
+      else setViewingExam({ ...exam, file_url: url })
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Erro ao abrir arquivo") }
+  }
 
   const handleAddExam = async () => {
     if (!title) {
@@ -78,8 +144,10 @@ export function AttachedExams({ patientId }: AttachedExamsProps) {
 
       if (selectedFile) {
         const supabase = createClient()
+        const { data: authData } = await supabase.auth.getUser()
+        if (!authData.user) throw new Error("Sessão expirada. Entre novamente.")
         const fileExt = selectedFile.name.split(".").pop()
-        const filePath = `exams/${patientId}/${Date.now()}.${fileExt}`
+        const filePath = `${authData.user.id}/${patientId}/${crypto.randomUUID()}.${fileExt}`
 
         const { error: uploadError } = await supabase.storage
           .from(STORAGE_BUCKET)
@@ -90,16 +158,7 @@ export function AttachedExams({ patientId }: AttachedExamsProps) {
           throw new Error(`Falha ao enviar arquivo: ${uploadError.message}`)
         }
 
-        // Bucket é privado (dado sensível de paciente), então usamos signed URL em vez de getPublicUrl.
-        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-          .from(STORAGE_BUCKET)
-          .createSignedUrl(filePath, SIGNED_URL_EXPIRY_SECONDS)
-
-        if (signedUrlError) {
-          throw new Error(`Falha ao gerar link do arquivo: ${signedUrlError.message}`)
-        }
-
-        fileUrl = signedUrlData.signedUrl
+        fileUrl = filePath
       }
 
       const res = await fetch("/api/documents", {
@@ -111,6 +170,7 @@ export function AttachedExams({ patientId }: AttachedExamsProps) {
           document_type: "exam",
           signed: true,
           description: examType,
+          storage_path: fileUrl,
           file_url: fileUrl,
           file_type: selectedFile?.type || null,
           file_size: selectedFile?.size || null,
@@ -184,29 +244,19 @@ export function AttachedExams({ patientId }: AttachedExamsProps) {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {(exam as any).file_url && (
+                  {((exam as any).storage_path || (exam as any).file_url) && (
                     <Button
                       variant="link"
                       size="sm"
                       className="text-primary"
-                      onClick={() => {
-                        const url: string = (exam as any).file_url
-                        const urlWithoutQuery = url.split("?")[0]
-                        const kind = resolveViewerKind(urlWithoutQuery)
-                        // Browsers already know how to render PDFs and images inline,
-                        // so let those open in a normal tab. Everything else (STL/OBJ/PLY
-                        // meshes, DICOM exams) has no native browser viewer and needs our
-                        // own UniversalFileViewer, or the browser just force-downloads it.
-                        if (kind === "document" || kind === "image") {
-                          window.open(url, "_blank")
-                        } else {
-                          setViewingExam(exam)
-                        }
-                      }}
+                      onClick={() => openExam(exam)}
                     >
                       Ver
                     </Button>
                   )}
+                  <Button variant="ghost" size="sm" title="Enviar ao e-mail do paciente" disabled={sendingId === exam.id || !(exam.storage_path || exam.file_url)} onClick={() => sendExam(exam)}>
+                    {sendingId === exam.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -257,6 +307,7 @@ export function AttachedExams({ patientId }: AttachedExamsProps) {
                     <SelectItem value="Tomografia">Tomografia</SelectItem>
                     <SelectItem value="Hemograma">Hemograma</SelectItem>
                     <SelectItem value="Periapical">Periapical</SelectItem>
+                    <SelectItem value="Fotografia intraoral">Fotografia intraoral</SelectItem>
                     <SelectItem value="Outro">Outro</SelectItem>
                   </SelectContent>
                 </Select>
@@ -272,6 +323,10 @@ export function AttachedExams({ patientId }: AttachedExamsProps) {
                     if (e.target.files?.[0]) setSelectedFile(e.target.files[0])
                   }}
                 />
+                <Button type="button" variant="outline" className="w-full gap-2" disabled={cameraLoading} onClick={startCamera}>
+                  {cameraLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                  Capturar com câmera intraoral
+                </Button>
                 {selectedFile ? (
                   <div className="flex items-center gap-2 rounded-lg border border-border p-2">
                     <FileText className="h-4 w-4 text-muted-foreground" />
@@ -326,6 +381,14 @@ export function AttachedExams({ patientId }: AttachedExamsProps) {
                 {isSaving ? "Salvando..." : "Adicionar"}
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={cameraOpen} onOpenChange={(open) => { if (!open) stopCamera() }}>
+          <DialogContent className="sm:max-w-[820px]">
+            <DialogHeader><DialogTitle>Câmera intraoral</DialogTitle><DialogDescription>Selecione a SKYcam no aviso do navegador, posicione a câmera e capture a imagem.</DialogDescription></DialogHeader>
+            <div className="overflow-hidden rounded-lg bg-black"><video ref={videoRef} autoPlay playsInline muted className="max-h-[60vh] w-full object-contain" /></div>
+            <DialogFooter><Button variant="outline" onClick={stopCamera}>Cancelar</Button><Button onClick={capturePhoto} className="gap-2"><Camera className="h-4 w-4" />Capturar imagem</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
