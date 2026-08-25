@@ -1,10 +1,7 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Geist } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
-
-const geist = Geist({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "SyncOdonto",
@@ -30,7 +27,7 @@ export default function RootLayout({
       <head>
         <meta name="google" content="notranslate" />
       </head>
-      <body className={`${geist.className} font-sans antialiased notranslate`} suppressHydrationWarning>
+      <body className="font-sans antialiased notranslate" suppressHydrationWarning>
         {children}
         <Analytics />
 </body>
