@@ -8,6 +8,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "pilot:preflight": "node scripts/pilot-preflight.mjs",
+    "pilot:smoke": "node scripts/pilot-smoke.mjs",
+    "verify": "npm run lint -- --quiet && npm run typecheck && npm test",
     "start": "next start"
   },
   "dependencies": {

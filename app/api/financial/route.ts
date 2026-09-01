@@ -2,6 +2,8 @@ import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { requirePermission } from "@/lib/permissions-server"
 import { stripImmutableTenantFields } from "@/lib/security/request-data"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
+import { financialInputSchema, parseInput } from "@/lib/validation/api-schemas"
+import { recordAuditEvent } from "@/lib/security/audit"
 import { NextResponse } from "next/server"
 
 // The clinic currently operates in Fortaleza (UTC-03:00). Date filters arrive as
@@ -55,12 +57,14 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId, permissions } = result as any
+  const { supabase, ownerId, permissions, user } = result as any
 
   const denied = requirePermission(permissions, "financeiro")
   if (denied) return denied
 
-  const body = stripImmutableTenantFields(await request.json())
+  const parsed = parseInput(financialInputSchema, stripImmutableTenantFields(await request.json()))
+  if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const body = parsed.data
 
   // Validações
   if (!body.patient_id) {
@@ -83,5 +87,6 @@ export async function POST(request: Request) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: "financial.created", entityType: "financial_transactions", entityId: data.id, metadata: { type: data.type, amount: data.amount, patient_id: data.patient_id } })
   return NextResponse.json({ data })
 }

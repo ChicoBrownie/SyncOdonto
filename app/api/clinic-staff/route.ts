@@ -4,6 +4,9 @@ import { createClient } from "@supabase/supabase-js"
 import { generateTempPassword } from "@/lib/utils/generate-password"
 import { sendStaffCredentialsEmail } from "@/lib/email/send-staff-credentials"
 import { isClinicManager, stripImmutableTenantFields } from "@/lib/security/request-data"
+import { parseInput, staffCreateSchema } from "@/lib/validation/api-schemas"
+import { consumeRateLimit } from "@/lib/security/rate-limit"
+import { recordAuditEvent } from "@/lib/security/audit"
 
 function getServiceClient() {
   return createClient(
@@ -65,8 +68,13 @@ export async function POST(request: Request) {
   if (!isClinicManager(accessRole)) {
     return NextResponse.json({ error: "Apenas o gestor da clínica pode adicionar membros." }, { status: 403 })
   }
+  if (!(await consumeRateLimit(supabase, `staff-invite:${ownerId}:${user.id}`, 10, 3600))) {
+    return NextResponse.json({ error: "Limite de convites atingido. Tente novamente mais tarde." }, { status: 429 })
+  }
 
-  const body = await request.json()
+  const parsed = parseInput(staffCreateSchema, await request.json())
+  if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const body = parsed.data
   const { full_name, role, specialty, email, phone, access_role, permissions, password: providedPassword } = body
 
   if (!full_name?.trim()) {
@@ -79,7 +87,7 @@ export async function POST(request: Request) {
   let tempPasswordToReturn: string | null = null
   let emailDelivered = false
 
-  if (email?.trim() && access_role && access_role !== "gestor") {
+  if (email?.trim()) {
     const adminClient = getServiceClient()
     const tempPassword = providedPassword?.trim() || generateTempPassword()
 
@@ -187,7 +195,7 @@ export async function POST(request: Request) {
       email: email?.trim() || null,
       phone: phone?.trim() || null,
       access_role: access_role || "dentista",
-      permissions: access_role === "gestor" ? null : permissions || null,
+      permissions: permissions || null,
       auth_user_id,
       invite_sent_at,
       user_id: ownerId,
@@ -196,6 +204,8 @@ export async function POST(request: Request) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: "staff.created", entityType: "clinic_staff", entityId: data.id, metadata: { access_role: data.access_role } })
 
   return NextResponse.json({
     data,
@@ -209,7 +219,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId, accessRole } = result as any
+  const { supabase, ownerId, accessRole, user } = result as any
 
   if (!isClinicManager(accessRole)) {
     return NextResponse.json({ error: "Apenas o gestor da clínica pode alterar membros." }, { status: 403 })
@@ -237,13 +247,14 @@ export async function PUT(request: Request) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: "staff.updated", entityType: "clinic_staff", entityId: String(id), metadata: { fields: Object.keys(updates) } })
   return NextResponse.json({ data })
 }
 
 export async function DELETE(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId, accessRole } = result as any
+  const { supabase, ownerId, accessRole, user } = result as any
 
   // Reforço no servidor: mesmo que o botão de excluir esteja escondido na UI
   // para quem não é gestor, sem essa checagem aqui qualquer funcionário
@@ -289,6 +300,8 @@ export async function DELETE(request: Request) {
       { status: 404 }
     )
   }
+
+  await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: "staff.deleted", entityType: "clinic_staff", entityId: id })
 
   return NextResponse.json({ success: true })
 }

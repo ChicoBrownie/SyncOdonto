@@ -3,6 +3,8 @@ import { NextResponse } from "next/server"
 import { notificarConfirmacaoConsulta } from "@/lib/whatsapp"
 import { stripImmutableTenantFields } from "@/lib/security/request-data"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
+import { appointmentInputSchema, parseInput } from "@/lib/validation/api-schemas"
+import { shouldCreateFinancialPending, validateAppointmentTransition } from "@/lib/appointments/lifecycle"
 
 export async function GET(
   request: Request,
@@ -33,7 +35,9 @@ export async function PATCH(
   const { supabase, ownerId } = result as any
   const { id } = await params
 
-  const body = stripImmutableTenantFields(await request.json())
+  const parsed = parseInput(appointmentInputSchema.partial(), stripImmutableTenantFields(await request.json()))
+  if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const body = parsed.data
   if (body.patient_id && !(await patientBelongsToClinic(supabase, body.patient_id, ownerId))) {
     return NextResponse.json({ error: "Paciente não pertence à clínica." }, { status: 403 })
   }
@@ -49,12 +53,8 @@ export async function PATCH(
 
   if (!anterior) return NextResponse.json({ error: "Consulta não encontrada." }, { status: 404 })
 
-  if (body.status === "Em Andamento" && !["Pendente", "Confirmada", "Aguardando"].includes(anterior.status)) {
-    return NextResponse.json({ error: "Esta consulta não está disponível para início." }, { status: 409 })
-  }
-  if (body.status === "Concluída" && anterior.status !== "Em Andamento") {
-    return NextResponse.json({ error: "Somente uma consulta em andamento pode ser encerrada." }, { status: 409 })
-  }
+  const transitionError = validateAppointmentTransition(anterior.status, body.status)
+  if (transitionError) return NextResponse.json({ error: transitionError }, { status: 409 })
 
   const { data, error } = await supabase
     .from("appointments")
@@ -69,7 +69,7 @@ export async function PATCH(
   // O lançamento nasce no servidor junto com o encerramento. Assim não existe
   // mais a janela em que a consulta fica concluída, mas a segunda requisição do
   // navegador falha e deixa o caixa sem pendência.
-  if (body.status === "Concluída" && anterior?.status !== "Concluída") {
+  if (shouldCreateFinancialPending(anterior.status, body.status)) {
     const { data: existingTransaction } = await supabase
       .from("financial_transactions")
       .select("id")

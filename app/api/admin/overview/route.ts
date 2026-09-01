@@ -1,11 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
-const ADMIN_USER_IDS = (process.env.ADMIN_USER_IDS || "")
-  .split(",")
-  .map((id) => id.trim())
-  .filter(Boolean)
-
 // Cliente com Service Role — ignora RLS, só usado neste arquivo de servidor
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -25,13 +20,19 @@ export async function GET() {
     return NextResponse.json({ error: "Não autenticado." }, { status: 401 })
   }
 
-  if (!ADMIN_USER_IDS.includes(user.id)) {
+  const supabase = getServiceClient()
+  const { data: admin } = await supabase
+    .from("platform_admins")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .maybeSingle()
+
+  if (!admin) {
     return NextResponse.json({ error: "Acesso restrito ao administrador." }, { status: 403 })
   }
 
   // 2. Usa o Service Role para buscar dados de TODAS as contas
-  const supabase = getServiceClient()
-
   const { data: patientsData } = await supabase
     .from("patients")
     .select("user_id")

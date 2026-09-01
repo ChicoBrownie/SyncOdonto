@@ -1,6 +1,7 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
+import { dentalChartInputSchema, parseInput } from "@/lib/validation/api-schemas"
 
 export async function GET(request: Request) {
   const result = await getClinicScopedClient()
@@ -33,11 +34,9 @@ export async function POST(request: Request) {
   if ("error" in result && result.error) return result.error
   const { supabase, ownerId } = result as any
 
-  const body = await request.json()
-
-  if (!body.patient_id || body.tooth_number === undefined || body.tooth_number === null || !body.condition) {
-    return NextResponse.json({ error: "Dados incompletos para salvar o dente" }, { status: 400 })
-  }
+  const parsed = parseInput(dentalChartInputSchema, await request.json())
+  if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const body = parsed.data
   if (!(await patientBelongsToClinic(supabase, body.patient_id, ownerId))) {
     return NextResponse.json({ error: "Paciente não pertence à clínica." }, { status: 403 })
   }

@@ -1,6 +1,7 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 import { stripImmutableTenantFields } from "@/lib/security/request-data"
+import { parseInput, patientInputSchema } from "@/lib/validation/api-schemas"
 
 export async function GET(
   request: Request,
@@ -34,7 +35,9 @@ export async function PATCH(
   const { supabase, ownerId } = result as any
   const { id } = await params
 
-  const body = stripImmutableTenantFields(await request.json())
+  const parsed = parseInput(patientInputSchema.partial(), stripImmutableTenantFields(await request.json()))
+  if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const body = parsed.data
 
   const { data, error } = await supabase
     .from("patients")

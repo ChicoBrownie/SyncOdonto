@@ -26,4 +26,13 @@ describe("getEffectivePermissions", () => {
       configuracoes: false,
     })
   })
+
+  it("mantém dentista e recepcionista restritos até liberação individual", () => {
+    expect(getEffectivePermissions("dentista")).toEqual({ financeiro: false, relatorios: false, configuracoes: false })
+    expect(getEffectivePermissions("recepcionista", { financeiro: true })).toEqual({
+      financeiro: true,
+      relatorios: false,
+      configuracoes: false,
+    })
+  })
 })
