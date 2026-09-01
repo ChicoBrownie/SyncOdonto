@@ -63,6 +63,8 @@ export type DentalChartEntry = {
   patient_id: string
   tooth_number: number
   condition: string | null
+  surfaces: string[] | null
+  surface_conditions: Record<string, string>
   notes: string | null
   updated_at: string
 }

@@ -1,262 +1,151 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
-import { Card, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { DentalChart, type ToothCondition, CONDITIONS, CONDITION_TO_DB, DB_TO_CONDITION } from "./dental-chart"
-import { ChartLegend } from "./chart-legend"
-import { Badge } from "@/components/ui/badge"
-import { CheckSquare, X } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { CheckSquare, Info, Loader2, X } from "lucide-react"
 import { toast } from "sonner"
 
-interface DentalChartViewProps {
-  patientId?: string
-}
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ChartLegend } from "./chart-legend"
+import {
+  CONDITIONS, CONDITION_TO_DB, DB_TO_CONDITION, DentalChart, SURFACE_LABELS,
+  type DentalSurface, type ToothArea, type ToothCondition, type ToothState,
+} from "./dental-chart"
+
+interface DentalChartViewProps { patientId?: string }
+
+const emptyTooth = (): ToothState => ({ surfaces: {} })
 
 export function DentalChartView({ patientId }: DentalChartViewProps) {
   const [selectedTooth, setSelectedTooth] = useState<number | null>(null)
-  const [toothData, setToothData] = useState<Record<number, ToothCondition>>({})
+  const [selectedArea, setSelectedArea] = useState<ToothArea | null>(null)
+  const [toothData, setToothData] = useState<Record<number, ToothState>>({})
+  const [dentition, setDentition] = useState<"permanent" | "deciduous">("permanent")
   const [isLoading, setIsLoading] = useState(false)
   const [savingTooth, setSavingTooth] = useState<number | null>(null)
-
   const [multiSelectMode, setMultiSelectMode] = useState(false)
   const [selectedTeeth, setSelectedTeeth] = useState<Set<number>>(new Set())
   const [isBulkSaving, setIsBulkSaving] = useState(false)
 
   useEffect(() => {
     if (!patientId) return
-
     setIsLoading(true)
     fetch(`/api/dental-charts?patientId=${patientId}`)
-      .then(r => r.json())
+      .then(async (response) => {
+        const body = await response.json()
+        if (!response.ok) throw new Error(body.error || "Não foi possível carregar o odontograma.")
+        return body
+      })
       .then(({ data }) => {
-        if (!data) return
-        const mapped: Record<number, ToothCondition> = {}
-        for (const row of data) {
-          // row.condition vem do banco em inglês (healthy, caries, filled...);
-          // traduzimos de volta para o valor em português usado na UI.
-          const uiCondition = DB_TO_CONDITION[row.condition]
-          if (uiCondition) {
-            mapped[row.tooth_number] = uiCondition
+        const mapped: Record<number, ToothState> = {}
+        for (const row of data || []) {
+          const surfaces: ToothState["surfaces"] = {}
+          for (const [surface, dbCondition] of Object.entries(row.surface_conditions || {})) {
+            const condition = DB_TO_CONDITION[String(dbCondition)]
+            if (condition) surfaces[surface as DentalSurface] = condition
           }
+          mapped[row.tooth_number] = { whole: DB_TO_CONDITION[row.condition], surfaces }
         }
         setToothData(mapped)
       })
-      .catch(console.error)
+      .catch((error) => toast.error(error instanceof Error ? error.message : "Erro ao carregar odontograma"))
       .finally(() => setIsLoading(false))
   }, [patientId])
 
-  const saveTooth = async (tooth: number, condition: ToothCondition) => {
-    const dbCondition = CONDITION_TO_DB[condition]
+  const saveState = async (tooth: number, state: ToothState) => {
+    if (!patientId) return
+    const surfaceConditions = Object.fromEntries(Object.entries(state.surfaces)
+      .map(([surface, condition]) => [surface, CONDITION_TO_DB[condition]])
+      .filter(([, condition]) => condition !== null))
+    const hasData = Boolean(state.whole) || Object.keys(surfaceConditions).length > 0
 
-    if (dbCondition === null) {
-      // "Sem Registros" não existe como valor no banco — a ausência de linha
-      // é o que representa essa condição, então apagamos o registro.
-      const res = await fetch(
-        `/api/dental-charts?patientId=${patientId}&toothNumber=${tooth}`,
-        { method: "DELETE" },
-      )
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || `Erro ao limpar dente ${tooth}`)
-      }
+    if (!hasData) {
+      const response = await fetch(`/api/dental-charts?patientId=${patientId}&toothNumber=${tooth}`, { method: "DELETE" })
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `Erro ao limpar dente ${tooth}`)
       return
     }
-
-    const res = await fetch("/api/dental-charts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    const response = await fetch("/api/dental-charts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         patient_id: patientId,
         tooth_number: tooth,
-        condition: dbCondition,
+        condition: state.whole ? CONDITION_TO_DB[state.whole] : null,
+        surface_conditions: surfaceConditions,
         notes: null,
       }),
     })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || `Erro ao salvar dente ${tooth}`)
-    }
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `Erro ao salvar dente ${tooth}`)
   }
 
-  const handleConditionChange = useCallback(async (tooth: number, condition: ToothCondition) => {
-    const previous = toothData[tooth]
+  const updateArea = useCallback(async (condition: ToothCondition) => {
+    if (!selectedTooth || !selectedArea) return
+    const tooth = selectedTooth
+    const previous = toothData[tooth] || emptyTooth()
+    const next: ToothState = { whole: previous.whole, surfaces: { ...previous.surfaces } }
+    const value = condition === "Sem Registros" ? undefined : condition
+    if (selectedArea === "whole") {
+      next.whole = value
+      if (value) next.surfaces = {}
+    } else if (value) next.surfaces[selectedArea] = value
+    else delete next.surfaces[selectedArea]
 
-    setToothData(prev => {
-      const updated = { ...prev }
-      if (condition === "Sem Registros") delete updated[tooth]
-      else updated[tooth] = condition
-      return updated
-    })
-
-    if (!patientId) return
-
+    setToothData((current) => ({ ...current, [tooth]: next }))
     setSavingTooth(tooth)
-    try {
-      await saveTooth(tooth, condition)
-    } catch (err) {
-      setToothData(prev => {
-        const reverted = { ...prev }
-        if (!previous || previous === "Sem Registros") delete reverted[tooth]
-        else reverted[tooth] = previous
-        return reverted
-      })
-      toast.error(err instanceof Error ? err.message : "Erro ao salvar dente")
-    } finally {
-      setSavingTooth(null)
-    }
-  }, [patientId, toothData])
+    try { await saveState(tooth, next); toast.success(`Dente ${tooth} atualizado`) }
+    catch (error) {
+      setToothData((current) => ({ ...current, [tooth]: previous }))
+      toast.error(error instanceof Error ? error.message : "Erro ao salvar alteração")
+    } finally { setSavingTooth(null) }
+  }, [patientId, selectedArea, selectedTooth, toothData])
 
-  const toggleToothSelection = useCallback((tooth: number) => {
-    setSelectedTeeth(prev => {
-      const next = new Set(prev)
-      if (next.has(tooth)) next.delete(tooth)
-      else next.add(tooth)
-      return next
-    })
-  }, [])
+  const selectArea = (tooth: number, area: ToothArea) => { setSelectedTooth(tooth); setSelectedArea(area) }
+  const toggleTooth = (tooth: number) => setSelectedTeeth((current) => {
+    const next = new Set(current); next.has(tooth) ? next.delete(tooth) : next.add(tooth); return next
+  })
+  const exitMultiSelect = () => { setMultiSelectMode(false); setSelectedTeeth(new Set()) }
 
-  const exitMultiSelect = () => {
-    setMultiSelectMode(false)
-    setSelectedTeeth(new Set())
-  }
-
-  const applyConditionToSelected = async (condition: ToothCondition) => {
-    if (selectedTeeth.size === 0 || !patientId) return
+  const applyBulk = async (condition: ToothCondition) => {
+    if (!patientId || selectedTeeth.size === 0) return
+    const previous = { ...toothData }
+    const teeth = [...selectedTeeth]
+    const nextStates = teeth.map((tooth) => [tooth, condition === "Sem Registros" ? emptyTooth() : { whole: condition, surfaces: {} }] as const)
+    setToothData((current) => ({ ...current, ...Object.fromEntries(nextStates) }))
     setIsBulkSaving(true)
-
-    const teeth = Array.from(selectedTeeth)
-    const previousData = { ...toothData }
-
-    setToothData(prev => {
-      const updated = { ...prev }
-      for (const tooth of teeth) {
-        if (condition === "Sem Registros") delete updated[tooth]
-        else updated[tooth] = condition
-      }
-      return updated
-    })
-
     try {
-      await Promise.all(teeth.map(tooth => saveTooth(tooth, condition)))
-      toast.success(`${teeth.length} dente${teeth.length !== 1 ? "s" : ""} atualizado${teeth.length !== 1 ? "s" : ""}`)
-      exitMultiSelect()
-    } catch (err) {
-      setToothData(previousData)
-      toast.error(err instanceof Error ? err.message : "Erro ao salvar alterações em lote")
-    } finally {
-      setIsBulkSaving(false)
-    }
+      await Promise.all(nextStates.map(([tooth, state]) => saveState(tooth, state)))
+      toast.success(`${teeth.length} dentes atualizados`); exitMultiSelect()
+    } catch (error) { setToothData(previous); toast.error(error instanceof Error ? error.message : "Erro ao salvar dentes") }
+    finally { setIsBulkSaving(false) }
   }
 
-  const selectedCondition = selectedTooth ? toothData[selectedTooth] || "Sem Registros" : null
-  const selectedConditionDef = selectedCondition ? CONDITIONS.find(c => c.value === selectedCondition) : null
+  const registeredCount = Object.values(toothData).filter((state) => state.whole || Object.keys(state.surfaces).length).length
+  const currentCondition = selectedTooth && selectedArea
+    ? selectedArea === "whole" ? toothData[selectedTooth]?.whole : toothData[selectedTooth]?.surfaces[selectedArea]
+    : undefined
 
-  const registeredCount = Object.keys(toothData).length
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <ChartLegend />
-        {!multiSelectMode ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 bg-transparent"
-            onClick={() => { setSelectedTooth(null); setMultiSelectMode(true) }}
-          >
-            <CheckSquare className="h-4 w-4" />
-            Selecionar vários dentes
-          </Button>
-        ) : (
-          <Button variant="ghost" size="sm" className="gap-2" onClick={exitMultiSelect}>
-            <X className="h-4 w-4" />
-            Cancelar seleção
-          </Button>
-        )}
-      </div>
-
-      <Card>
-        <CardContent className="p-3 sm:p-6 overflow-hidden">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-40">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-            </div>
-          ) : (
-            <DentalChart
-              selectedTooth={selectedTooth}
-              onToothSelect={setSelectedTooth}
-              toothData={toothData}
-              onConditionChange={handleConditionChange}
-              multiSelectMode={multiSelectMode}
-              selectedTeeth={selectedTeeth}
-              onToggleToothSelection={toggleToothSelection}
-            />
-          )}
-
-          <div className="mt-6 flex items-center justify-center gap-3">
-            <p className="text-xs text-muted-foreground">
-              {multiSelectMode
-                ? `${selectedTeeth.size} dente${selectedTeeth.size !== 1 ? "s" : ""} selecionado${selectedTeeth.size !== 1 ? "s" : ""}. Clique nos dentes para marcar/desmarcar.`
-                : savingTooth
-                  ? `Salvando dente ${savingTooth}...`
-                  : "Clique em um dente para alterar sua condição"}
-              {registeredCount > 0 && !savingTooth && !multiSelectMode && (
-                <span className="ml-2 text-foreground font-medium">
-                  ({registeredCount} dente{registeredCount !== 1 ? "s" : ""} registrado{registeredCount !== 1 ? "s" : ""})
-                </span>
-              )}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {multiSelectMode && selectedTeeth.size > 0 && (
-        <Card className="border-primary/40">
-          <CardContent className="p-4">
-            <p className="text-sm font-medium text-foreground mb-3">
-              Aplicar condição a {selectedTeeth.size} dente{selectedTeeth.size !== 1 ? "s" : ""}:
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {CONDITIONS.map(c => (
-                <Button
-                  key={c.value}
-                  size="sm"
-                  variant="outline"
-                  disabled={isBulkSaving}
-                  className="gap-2 bg-transparent"
-                  onClick={() => applyConditionToSelected(c.value)}
-                >
-                  <div className={`h-3 w-3 rounded-full ${c.dotColor}`} />
-                  {c.label}
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!multiSelectMode && selectedTooth && (
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Dente {selectedTooth}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {selectedConditionDef?.value === "Sem Registros"
-                    ? "Nenhuma condição registrada. Clique no dente para selecionar."
-                    : `Condição: ${selectedConditionDef?.label}`}
-                </p>
-              </div>
-              {selectedConditionDef && selectedConditionDef.value !== "Sem Registros" && (
-                <Badge className={`${selectedConditionDef.dotColor} text-white`}>
-                  {selectedConditionDef.label}
-                </Badge>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+  return <div className="space-y-5">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <ChartLegend />
+      {!multiSelectMode
+        ? <Button variant="outline" size="sm" onClick={() => { setSelectedTooth(null); setSelectedArea(null); setMultiSelectMode(true) }}><CheckSquare className="mr-2 h-4 w-4" />Selecionar vários dentes</Button>
+        : <Button variant="ghost" size="sm" onClick={exitMultiSelect}><X className="mr-2 h-4 w-4" />Cancelar seleção</Button>}
     </div>
-  )
+
+    <Card><CardContent className="p-3 sm:p-6">
+      <Tabs value={dentition} onValueChange={(value) => { setDentition(value as typeof dentition); setSelectedTooth(null); setSelectedArea(null) }} className="mb-6">
+        <TabsList className="mx-auto grid w-full max-w-sm grid-cols-2"><TabsTrigger value="permanent">Permanentes</TabsTrigger><TabsTrigger value="deciduous">Decíduos</TabsTrigger></TabsList>
+      </Tabs>
+      {isLoading ? <div className="flex h-48 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
+        : <DentalChart selectedTooth={selectedTooth} selectedArea={selectedArea} onAreaSelect={selectArea} toothData={toothData} multiSelectMode={multiSelectMode} selectedTeeth={selectedTeeth} onToggleToothSelection={toggleTooth} dentition={dentition} />}
+      <p className="mt-4 text-center text-xs text-muted-foreground">{savingTooth ? `Salvando dente ${savingTooth}...` : `${registeredCount} dente${registeredCount === 1 ? "" : "s"} com registro`}</p>
+    </CardContent></Card>
+
+    {!multiSelectMode && selectedTooth && selectedArea && <Card className="border-primary/40"><CardContent className="p-4 sm:p-5">
+      <div className="mb-4 flex items-start gap-3"><Info className="mt-0.5 h-5 w-5 text-primary" /><div><p className="font-semibold">Dente {selectedTooth} — {SURFACE_LABELS[selectedArea]}</p><p className="text-sm text-muted-foreground">{currentCondition ? `Registro atual: ${currentCondition}` : "Escolha a condição encontrada nesta região."}</p></div></div>
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">{CONDITIONS.map((item) => <Button key={item.value} size="sm" variant={currentCondition === item.value ? "default" : "outline"} disabled={savingTooth === selectedTooth} className="justify-start gap-2" onClick={() => updateArea(item.value)}><span className={`h-3 w-3 rounded-full ${item.dotColor}`} />{item.label}</Button>)}</div>
+    </CardContent></Card>}
+
+    {multiSelectMode && selectedTeeth.size > 0 && <Card className="border-primary/40"><CardContent className="p-4"><p className="mb-3 text-sm font-medium">Aplicar ao dente inteiro em {selectedTeeth.size} selecionados:</p><div className="flex flex-wrap gap-2">{CONDITIONS.map((item) => <Button key={item.value} size="sm" variant="outline" disabled={isBulkSaving} onClick={() => applyBulk(item.value)}><span className={`mr-2 h-3 w-3 rounded-full ${item.dotColor}`} />{item.label}</Button>)}</div></CardContent></Card>}
+  </div>
 }

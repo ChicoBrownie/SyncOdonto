@@ -5,7 +5,7 @@ export function ChartLegend() {
   return (
     <Card>
       <CardContent className="p-4">
-        <p className="text-sm font-medium text-foreground mb-3">Legenda de Condicoes</p>
+        <p className="text-sm font-medium text-foreground mb-3">Legenda de condições</p>
         <div className="flex flex-wrap gap-x-5 gap-y-2">
           {CONDITIONS.map((item) => (
             <div key={item.value} className="flex items-center gap-2">

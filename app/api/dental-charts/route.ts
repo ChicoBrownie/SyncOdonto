@@ -49,6 +49,8 @@ export async function POST(request: Request) {
         patient_id: body.patient_id,
         tooth_number: body.tooth_number,
         condition: body.condition,
+        surface_conditions: body.surface_conditions ?? {},
+        surfaces: Object.keys(body.surface_conditions ?? {}),
         notes: body.notes ?? null,
       },
       { onConflict: "user_id,patient_id,tooth_number" },
