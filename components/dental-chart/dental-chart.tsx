@@ -1,178 +1,107 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Button } from "@/components/ui/button"
 import { Check } from "lucide-react"
 
 export type ToothCondition = "Saudável" | "Restaurado" | "Atenção/Cárie" | "Tratamento Canal" | "Sem Registros" | "Ausente" | "Implante"
+export type DentalSurface = "vestibular" | "lingual" | "mesial" | "distal" | "occlusal"
+export type ToothArea = DentalSurface | "whole"
+export type ToothState = { whole?: ToothCondition; surfaces: Partial<Record<DentalSurface, ToothCondition>> }
 
-export const CONDITIONS: { value: ToothCondition; label: string; color: string; dotColor: string }[] = [
-  { value: "Sem Registros", label: "Sem Registro", color: "bg-muted hover:bg-muted/80 border-border", dotColor: "bg-muted-foreground" },
-  { value: "Saudável", label: "Saudavel", color: "bg-success hover:bg-success/80 border-success", dotColor: "bg-success" },
-  { value: "Restaurado", label: "Restaurado", color: "bg-primary hover:bg-primary/80 border-primary", dotColor: "bg-primary" },
-  { value: "Atenção/Cárie", label: "Carie", color: "bg-warning hover:bg-warning/80 border-warning", dotColor: "bg-warning" },
-  { value: "Tratamento Canal", label: "Tratamento de Canal", color: "bg-danger hover:bg-danger/80 border-danger", dotColor: "bg-danger" },
-  { value: "Ausente", label: "Ausente", color: "bg-zinc-400 hover:bg-zinc-400/80 border-zinc-400", dotColor: "bg-zinc-400" },
-  { value: "Implante", label: "Implante", color: "bg-violet-500 hover:bg-violet-400/80 border-violet-500", dotColor: "bg-violet-500" },
+export const SURFACE_LABELS: Record<ToothArea, string> = {
+  whole: "Dente inteiro", vestibular: "Vestibular", lingual: "Lingual / palatina",
+  mesial: "Mesial", distal: "Distal", occlusal: "Oclusal / incisal",
+}
+
+export const CONDITIONS: { value: ToothCondition; label: string; color: string; dotColor: string; hex: string }[] = [
+  { value: "Sem Registros", label: "Sem registro", color: "bg-muted border-border", dotColor: "bg-slate-400", hex: "#ffffff" },
+  { value: "Saudável", label: "Saudável", color: "bg-success border-success", dotColor: "bg-emerald-500", hex: "#22c55e" },
+  { value: "Restaurado", label: "Restaurado", color: "bg-primary border-primary", dotColor: "bg-cyan-600", hex: "#0891b2" },
+  { value: "Atenção/Cárie", label: "Cárie / atenção", color: "bg-warning border-warning", dotColor: "bg-amber-500", hex: "#f59e0b" },
+  { value: "Tratamento Canal", label: "Tratamento de canal", color: "bg-danger border-danger", dotColor: "bg-red-600", hex: "#dc2626" },
+  { value: "Ausente", label: "Ausente", color: "bg-zinc-400 border-zinc-400", dotColor: "bg-zinc-400", hex: "#a1a1aa" },
+  { value: "Implante", label: "Implante", color: "bg-violet-500 border-violet-500", dotColor: "bg-violet-500", hex: "#8b5cf6" },
 ]
 
-// Traduz o valor exibido no front (português) para o valor aceito pela
-// CHECK constraint da tabela dental_charts no Supabase (inglês).
-// null = não existe linha no banco para essa condição; DELETE em vez de upsert.
 export const CONDITION_TO_DB: Record<ToothCondition, string | null> = {
-  "Sem Registros": null,
-  "Saudável": "healthy",
-  "Restaurado": "filled",
-  "Atenção/Cárie": "caries",
-  "Tratamento Canal": "root_canal",
-  "Ausente": "absent",
-  "Implante": "implant",
+  "Sem Registros": null, "Saudável": "healthy", "Restaurado": "filled",
+  "Atenção/Cárie": "caries", "Tratamento Canal": "root_canal", "Ausente": "absent", "Implante": "implant",
 }
 
-// Sentido inverso: valor salvo no banco -> valor exibido no front.
-// Os valores da constraint que não têm equivalente na UI hoje
-// (extracted, crown, bridge, fracture) ficam de fora e são ignorados na leitura.
 export const DB_TO_CONDITION: Record<string, ToothCondition> = {
-  healthy: "Saudável",
-  filled: "Restaurado",
-  caries: "Atenção/Cárie",
-  root_canal: "Tratamento Canal",
-  absent: "Ausente",
-  implant: "Implante",
+  healthy: "Saudável", filled: "Restaurado", caries: "Atenção/Cárie",
+  root_canal: "Tratamento Canal", absent: "Ausente", implant: "Implante",
 }
+
+const SURFACES: DentalSurface[] = ["vestibular", "lingual", "mesial", "distal", "occlusal"]
 
 interface DentalChartProps {
   selectedTooth: number | null
-  onToothSelect: (tooth: number) => void
-  toothData: Record<number, ToothCondition>
-  onConditionChange: (tooth: number, condition: ToothCondition) => void
+  selectedArea?: ToothArea | null
+  onAreaSelect: (tooth: number, area: ToothArea) => void
+  toothData: Record<number, ToothState>
   multiSelectMode?: boolean
   selectedTeeth?: Set<number>
   onToggleToothSelection?: (tooth: number) => void
+  dentition: "permanent" | "deciduous"
 }
 
-const getToothColor = (condition: ToothCondition) => {
-  return CONDITIONS.find(c => c.value === condition)?.color || CONDITIONS[0].color
+function conditionHex(condition?: ToothCondition) {
+  return CONDITIONS.find((item) => item.value === condition)?.hex || "#ffffff"
 }
 
-export function DentalChart({
-  selectedTooth,
-  onToothSelect,
-  toothData,
-  onConditionChange,
-  multiSelectMode = false,
-  selectedTeeth,
-  onToggleToothSelection,
-}: DentalChartProps) {
-  const upperTeeth = [
-    [18, 17, 16, 15, 14, 13, 12, 11],
-    [21, 22, 23, 24, 25, 26, 27, 28],
-  ]
-
-  const lowerTeeth = [
-    [48, 47, 46, 45, 44, 43, 42, 41],
-    [31, 32, 33, 34, 35, 36, 37, 38],
-  ]
-
-  const renderTooth = (toothNumber: number) => {
-    const condition: ToothCondition = toothData[toothNumber] || "Sem Registros"
-    const isEmpty = condition === "Sem Registros"
-    const isSelected = selectedTooth === toothNumber
-    const isMissing = condition === "Ausente"
-    const isChecked = selectedTeeth?.has(toothNumber) ?? false
-
-    const toothButton = (
-      <button
-        onClick={() => {
-          if (multiSelectMode) {
-            onToggleToothSelection?.(toothNumber)
-          } else {
-            onToothSelect(toothNumber)
-          }
-        }}
-        className={cn(
-          "relative flex h-8 w-8 sm:h-12 sm:w-12 items-center justify-center rounded-md sm:rounded-lg border-2 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/50 shrink-0",
-          isSelected && !multiSelectMode && "ring-2 ring-primary ring-offset-1 sm:ring-offset-2 ring-offset-background",
-          isChecked && multiSelectMode && "ring-2 ring-primary ring-offset-1 sm:ring-offset-2 ring-offset-background scale-105",
-          isMissing && "opacity-50 line-through",
-          getToothColor(condition),
-        )}
-      >
-        {isChecked && multiSelectMode && (
-          <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <Check className="h-2 w-2" />
-          </span>
-        )}
-        <span className={cn(
-          "text-[10px] sm:text-xs font-bold",
-          isEmpty ? "text-muted-foreground" : "text-foreground",
-        )}>
-          {toothNumber}
-        </span>
-      </button>
-    )
-
-    if (multiSelectMode) {
-      return <div key={toothNumber}>{toothButton}</div>
-    }
-
-    return (
-      <Popover key={toothNumber}>
-        <PopoverTrigger asChild>{toothButton}</PopoverTrigger>
-        <PopoverContent className="w-52 p-2" align="center" side="bottom">
-          <p className="text-xs font-semibold text-foreground mb-2 px-1">Dente {toothNumber}</p>
-          <div className="flex flex-col gap-0.5">
-            {CONDITIONS.map(c => (
-              <Button
-                key={c.value}
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "justify-start gap-2 h-8 text-xs font-medium",
-                  condition === c.value && "bg-accent"
-                )}
-                onClick={() => onConditionChange(toothNumber, c.value)}
-              >
-                <div className={cn("h-3 w-3 rounded-full shrink-0", c.dotColor)} />
-                {c.label}
-              </Button>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
-    )
+function ToothDiagram({ number, state, selected, selectedArea, multiSelectMode, checked, onSelect }: {
+  number: number; state?: ToothState; selected: boolean; selectedArea?: ToothArea | null
+  multiSelectMode: boolean; checked: boolean; onSelect: (area: ToothArea) => void
+}) {
+  const fill = (surface: DentalSurface) => conditionHex(state?.surfaces[surface] || state?.whole)
+  const areaClass = (surface: DentalSurface) => cn(
+    "cursor-pointer stroke-slate-400 transition-all hover:brightness-90 focus:outline-none",
+    selected && selectedArea === surface && "stroke-primary stroke-[2.5]",
+  )
+  const select = (area: ToothArea) => onSelect(multiSelectMode ? "whole" : area)
+  const quadrant = Math.floor(number / 10)
+  const mesialOnRight = [1, 4, 5, 8].includes(quadrant)
+  const leftSurface: DentalSurface = mesialOnRight ? "distal" : "mesial"
+  const rightSurface: DentalSurface = mesialOnRight ? "mesial" : "distal"
+  const keyboard = (event: React.KeyboardEvent, area: ToothArea) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(area) }
   }
 
-  // Cada lado da arcada: grade de 4 colunas no celular (quebra em 2 linhas de 4),
-  // vira fileira única a partir de sm: (tablet/desktop) — sem scroll horizontal em nenhum tamanho.
-  const quadrantClass = "grid grid-cols-4 gap-1 sm:flex sm:gap-1.5 justify-items-center"
-
   return (
-    <div className="space-y-6 w-full overflow-hidden">
-      {/* Arcada Superior */}
-      <div>
-        <div className="mb-3 text-center">
-          <span className="text-sm font-medium text-muted-foreground">Arcada Superior</span>
-        </div>
-        <div className="flex justify-center gap-2 sm:gap-8">
-          <div className={quadrantClass}>{upperTeeth[0].map(renderTooth)}</div>
-          <div className={quadrantClass}>{upperTeeth[1].map(renderTooth)}</div>
-        </div>
-      </div>
-
-      <div className="h-px bg-border" />
-
-      {/* Arcada Inferior */}
-      <div>
-        <div className="flex justify-center gap-2 sm:gap-8">
-          <div className={quadrantClass}>{lowerTeeth[0].map(renderTooth)}</div>
-          <div className={quadrantClass}>{lowerTeeth[1].map(renderTooth)}</div>
-        </div>
-        <div className="mt-3 text-center">
-          <span className="text-sm font-medium text-muted-foreground">Arcada Inferior</span>
-        </div>
-      </div>
+    <div className={cn("relative flex w-12 flex-col items-center", checked && "scale-105")}>
+      <button type="button" onClick={() => select("whole")} className={cn(
+        "mb-0.5 rounded px-1 text-[11px] font-semibold hover:bg-accent focus:outline-none focus:ring-2 focus:ring-primary/50",
+        selected && selectedArea === "whole" && "bg-primary text-primary-foreground",
+      )} aria-label={`Selecionar dente ${number} inteiro`}>{number}</button>
+      <svg viewBox="0 0 46 46" className="h-11 w-11" role="group" aria-label={`Dente ${number} dividido em cinco faces`}>
+        <path tabIndex={0} role="button" aria-label={`${SURFACE_LABELS.vestibular} do dente ${number}`} onClick={() => select("vestibular")} onKeyDown={(e) => keyboard(e, "vestibular")} className={areaClass("vestibular")} fill={fill("vestibular")} d="M3 3 H43 L33 14 H13 Z" />
+        <path tabIndex={0} role="button" aria-label={`${SURFACE_LABELS.lingual} do dente ${number}`} onClick={() => select("lingual")} onKeyDown={(e) => keyboard(e, "lingual")} className={areaClass("lingual")} fill={fill("lingual")} d="M3 43 H43 L33 32 H13 Z" />
+        <path tabIndex={0} role="button" aria-label={`${SURFACE_LABELS[leftSurface]} do dente ${number}`} onClick={() => select(leftSurface)} onKeyDown={(e) => keyboard(e, leftSurface)} className={areaClass(leftSurface)} fill={fill(leftSurface)} d="M3 3 L13 14 V32 L3 43 Z" />
+        <path tabIndex={0} role="button" aria-label={`${SURFACE_LABELS[rightSurface]} do dente ${number}`} onClick={() => select(rightSurface)} onKeyDown={(e) => keyboard(e, rightSurface)} className={areaClass(rightSurface)} fill={fill(rightSurface)} d="M43 3 L33 14 V32 L43 43 Z" />
+        <rect tabIndex={0} role="button" aria-label={`${SURFACE_LABELS.occlusal} do dente ${number}`} onClick={() => select("occlusal")} onKeyDown={(e) => keyboard(e, "occlusal")} className={areaClass("occlusal")} fill={fill("occlusal")} x="13" y="14" width="20" height="18" rx="3" />
+      </svg>
+      {checked && <span className="absolute -right-0.5 top-3 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="h-2.5 w-2.5" /></span>}
     </div>
   )
+}
+
+export function DentalChart({ selectedTooth, selectedArea, onAreaSelect, toothData, multiSelectMode = false, selectedTeeth, onToggleToothSelection, dentition }: DentalChartProps) {
+  const rows = dentition === "permanent"
+    ? [[18,17,16,15,14,13,12,11,21,22,23,24,25,26,27,28], [48,47,46,45,44,43,42,41,31,32,33,34,35,36,37,38]]
+    : [[55,54,53,52,51,61,62,63,64,65], [85,84,83,82,81,71,72,73,74,75]]
+
+  return <div className="space-y-7">
+    {rows.map((numbers, rowIndex) => <div key={rowIndex}>
+      <p className="mb-3 text-center text-xs font-medium text-muted-foreground">{rowIndex === 0 ? "Arcada superior" : "Arcada inferior"}</p>
+      <div className="mx-auto flex max-w-5xl flex-wrap justify-center gap-x-1 gap-y-3 sm:gap-x-2">
+        {numbers.map((number, index) => <div key={number} className={cn("flex items-center", index === numbers.length / 2 && "ml-3 border-l border-dashed border-border pl-3 sm:ml-5 sm:pl-5")}>
+          <ToothDiagram number={number} state={toothData[number]} selected={selectedTooth === number} selectedArea={selectedArea} multiSelectMode={multiSelectMode} checked={selectedTeeth?.has(number) ?? false} onSelect={(area) => multiSelectMode ? onToggleToothSelection?.(number) : onAreaSelect(number, area)} />
+        </div>)}
+      </div>
+    </div>)}
+    <div className="flex flex-wrap justify-center gap-x-5 gap-y-2 border-t pt-4 text-[11px] text-muted-foreground">
+      {SURFACES.map((surface) => <span key={surface}><strong className="text-foreground">{SURFACE_LABELS[surface]}:</strong> clique na região do desenho</span>)}
+    </div>
+  </div>
 }

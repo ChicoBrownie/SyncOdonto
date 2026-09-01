@@ -30,6 +30,19 @@ describe("esquemas das APIs", () => {
     expect(dentalChartInputSchema.safeParse({ patient_id, tooth_number: 11, condition: "desconhecida" }).success).toBe(false)
   })
 
+  it("aceita condições independentes nas cinco faces do dente", () => {
+    const patient_id = "6cf937ae-ee8c-4856-bcf7-4f4d0ac58122"
+    const parsed = dentalChartInputSchema.safeParse({
+      patient_id,
+      tooth_number: 26,
+      condition: null,
+      surface_conditions: { mesial: "caries", occlusal: "filled" },
+      notes: null,
+    })
+    expect(parsed.success).toBe(true)
+    expect(dentalChartInputSchema.safeParse({ patient_id, tooth_number: 26, condition: null, surface_conditions: { raiz: "caries" } }).success).toBe(false)
+  })
+
   it("preserva a assinatura enviada em um documento válido", () => {
     const parsed = documentInputSchema.safeParse({ title: "Termo", document_type: "consent", signed: true, signature_data: "data:image/png;base64,AAAA" })
     expect(parsed.success && parsed.data.signature_data).toContain("data:image/png")

@@ -115,7 +115,11 @@ export const clinicSettingsSchema = z.object({
 export const dentalChartInputSchema = z.object({
   patient_id: uuid,
   tooth_number: z.number().int().min(11).max(85),
-  condition: z.enum(["healthy", "caries", "filled", "extracted", "crown", "implant", "bridge", "root_canal", "fracture", "absent"]),
+  condition: z.enum(["healthy", "caries", "filled", "extracted", "crown", "implant", "bridge", "root_canal", "fracture", "absent"]).nullable(),
+  surface_conditions: z.record(
+    z.enum(["vestibular", "lingual", "mesial", "distal", "occlusal"]),
+    z.enum(["healthy", "caries", "filled", "extracted", "crown", "implant", "bridge", "root_canal", "fracture", "absent"]),
+  ).optional(),
   notes: nullableText(5000),
 })
 
