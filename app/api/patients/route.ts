@@ -1,6 +1,7 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 import { stripImmutableTenantFields } from "@/lib/security/request-data"
+import { parseInput, patientInputSchema } from "@/lib/validation/api-schemas"
 
 export async function GET(request: Request) {
   const result = await getClinicScopedClient()
@@ -43,7 +44,9 @@ export async function POST(request: Request) {
   if ("error" in result && result.error) return result.error
   const { supabase, ownerId } = result as any
 
-  const body = stripImmutableTenantFields(await request.json())
+  const parsed = parseInput(patientInputSchema, stripImmutableTenantFields(await request.json()))
+  if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const body = parsed.data
 
   const { data, error } = await supabase
     .from("patients")

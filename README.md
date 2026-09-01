@@ -58,6 +58,7 @@ Os scripts SQL estão em `scripts/` e devem ser aplicados em ordem numérica:
 2. `002_phone_change_otps.sql`
 3. `003_paperless_management.sql`
 4. `004_paperless_templates.sql`
+5. `005_security_hardening.sql`
 
 Antes de executar os scripts em uma base existente, faça backup e revise as diferenças no Supabase. Os scripts não substituem uma estratégia formal de migrações e não devem ser reaplicados cegamente em produção.
 
@@ -76,7 +77,7 @@ O build não ignora mais erros de TypeScript. O lint possui algumas advertência
 
 O arquivo `netlify.toml` já configura o build Next.js na Netlify. Configure no painel as mesmas variáveis usadas localmente, além das URLs autorizadas no Supabase Auth.
 
-Para usar o painel global `/admin`, defina `ADMIN_USER_IDS` com os UUIDs autorizados separados por vírgula. Sem essa variável, o painel falha de forma segura e não libera nenhum administrador global.
+Para usar o painel global `/admin`, cadastre explicitamente o usuário na tabela privada `platform_admins`, conforme a instrução ao final de `005_security_hardening.sql`.
 
 Ao conectar um domínio próprio:
 

@@ -32,4 +32,12 @@ describe("patientBelongsToClinic", () => {
     await expect(patientBelongsToClinic(client, "paciente-2", "clinica-1")).resolves.toBe(false)
     await expect(patientBelongsToClinic(client, null, "clinica-1")).resolves.toBe(false)
   })
+
+  it("mantém duas clínicas fictícias isoladas pelo proprietário", async () => {
+    const clinicA = clinicClient({ data: { id: "paciente-a" }, error: null })
+    const clinicB = clinicClient({ data: null, error: null })
+    await expect(patientBelongsToClinic(clinicA.client, "paciente-a", "clinica-a")).resolves.toBe(true)
+    await expect(patientBelongsToClinic(clinicB.client, "paciente-a", "clinica-b")).resolves.toBe(false)
+    expect(clinicB.chain.eq).toHaveBeenNthCalledWith(2, "user_id", "clinica-b")
+  })
 })

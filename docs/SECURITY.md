@@ -22,16 +22,17 @@
 - revisar termos, consentimentos, política de privacidade e responsabilidades da LGPD;
 - executar teste de isolamento com pelo menos duas clínicas e três perfis de funcionário.
 
+## Migração de segurança
+
+Execute `scripts/005_security_hardening.sql` antes de publicar esta versão. A migração cria administradores persistidos, auditoria, rate limits e solicitações de exportação/exclusão. Sem ela, as operações protegidas falham de forma segura.
+
+O primeiro administrador global deve ser cadastrado manualmente no SQL Editor com o UUID correto do Supabase Auth. A tabela não possui políticas para o navegador e somente o backend administrativo pode consultá-la.
+
+Consulte também [DATA_RETENTION.md](DATA_RETENTION.md).
+
 ## Resposta a incidentes
 
-Em suspeita de vazamento ou comprometimento:
-
-1. interromper o acesso afetado;
-2. rotacionar chaves e sessões;
-3. preservar registros para investigação;
-4. identificar titulares e dados envolvidos;
-5. restaurar apenas a partir de backup verificado;
-6. seguir o processo jurídico e regulatório aplicável.
+O procedimento completo, com papéis, severidade, contenção, recuperação e comunicação, está em [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md). A clínica deve preencher responsáveis e contatos e realizar um exercício antes do piloto com dados reais.
 
 ## Dependências
 

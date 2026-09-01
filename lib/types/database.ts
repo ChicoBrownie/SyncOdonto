@@ -127,11 +127,15 @@ export type ClinicSettings = {
   id: string
   user_id: string
   clinic_name: string
+  cnpj: string | null
   address: string | null
   phone: string | null
   email: string | null
-  working_hours: { start: string; end: string }
-  settings: Record<string, any>
+  working_hours: {
+    start: string
+    end: string
+    days?: Record<string, { start: string; end: string; closed: boolean }>
+  }
   created_at: string
   updated_at: string
 }

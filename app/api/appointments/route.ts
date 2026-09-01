@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { stripImmutableTenantFields } from "@/lib/security/request-data"
 import { getLocalDate, getLocalMinutes, hasTimeConflict, parseMinutes } from "@/lib/appointments/scheduling"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
+import { appointmentInputSchema, parseInput } from "@/lib/validation/api-schemas"
 
 export async function GET(request: Request) {
   const result = await getClinicScopedClient()
@@ -38,7 +39,9 @@ export async function POST(request: Request) {
   if ("error" in result && result.error) return result.error
   const { supabase, ownerId } = result as any
 
-  const body = stripImmutableTenantFields(await request.json())
+  const parsed = parseInput(appointmentInputSchema, stripImmutableTenantFields(await request.json()))
+  if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const body = parsed.data
 
   // Validações básicas
   if (!body.patient_id) {

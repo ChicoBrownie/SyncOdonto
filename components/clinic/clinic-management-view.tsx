@@ -136,11 +136,11 @@ export function ClinicManagementView() {
     if (settings) {
       setSettingsForm({
         clinic_name: settings.clinic_name || "",
-        cnpj: (settings.settings as any)?.cnpj || "",
+        cnpj: settings.cnpj || "",
         phone: settings.phone || "",
         email: settings.email || "",
         address: settings.address || "",
-        hours: (settings.settings as any)?.hours || emptySettingsForm.hours,
+        hours: (settings.working_hours as any)?.days || emptySettingsForm.hours,
       })
     }
   }, [settings])
@@ -161,8 +161,8 @@ export function ClinicManagementView() {
         phone: settingsForm.phone || null,
         email: settingsForm.email || null,
         address: settingsForm.address || null,
-        working_hours: { start: "08:00", end: "18:00" },
-        settings: { cnpj: settingsForm.cnpj, hours: settingsForm.hours },
+        cnpj: settingsForm.cnpj || null,
+        working_hours: { start: "08:00", end: "18:00", days: settingsForm.hours },
       } as any)
       toast.success("Configurações salvas com sucesso!")
       mutateSettings()

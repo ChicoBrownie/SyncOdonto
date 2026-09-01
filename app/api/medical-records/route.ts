@@ -2,6 +2,8 @@ import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 import { stripImmutableTenantFields } from "@/lib/security/request-data"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
+import { recordAuditEvent } from "@/lib/security/audit"
+import { medicalRecordInputSchema, parseInput } from "@/lib/validation/api-schemas"
 
 const TABLE_NAME = "medical_records"
 
@@ -40,9 +42,11 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId } = result as any
+  const { supabase, ownerId, user } = result as any
 
-  const body = stripImmutableTenantFields(await request.json())
+  const parsed = parseInput(medicalRecordInputSchema, stripImmutableTenantFields(await request.json()))
+  if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const body = parsed.data
 
   if (!(await patientBelongsToClinic(supabase, body.patient_id, ownerId))) {
     return NextResponse.json({ error: "Paciente não pertence à clínica." }, { status: 403 })
@@ -58,13 +62,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: "medical_record.created", entityType: TABLE_NAME, entityId: data.id, metadata: { patient_id: data.patient_id, record_type: data.record_type } })
+
   return NextResponse.json({ data })
 }
 
 export async function DELETE(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId } = result as any
+  const { supabase, ownerId, user } = result as any
 
   const { searchParams } = new URL(request.url)
   const id = searchParams.get("id")
@@ -78,5 +84,6 @@ export async function DELETE(request: Request) {
     .eq("user_id", ownerId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: "medical_record.deleted", entityType: TABLE_NAME, entityId: id })
   return NextResponse.json({ success: true })
 }

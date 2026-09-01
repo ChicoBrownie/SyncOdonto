@@ -1,6 +1,9 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 import { createSimplePdf } from "@/lib/documents/simple-pdf"
+import { documentInputSchema, parseInput } from "@/lib/validation/api-schemas"
+import { consumeRateLimit } from "@/lib/security/rate-limit"
+import { recordAuditEvent } from "@/lib/security/audit"
 
 const STORAGE_BUCKET = "documentos-clinica"
 
@@ -32,7 +35,13 @@ export async function POST(request: Request) {
   if ("error" in result && result.error) return result.error
   const { supabase, ownerId, user } = result as any
 
-  const body = await request.json()
+  const parsed = parseInput(documentInputSchema, await request.json())
+  if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const body = parsed.data
+
+  if (!(await consumeRateLimit(supabase, `documents:create:${ownerId}:${user.id}`, 60, 60))) {
+    return NextResponse.json({ error: "Muitos documentos em pouco tempo. Tente novamente em um minuto." }, { status: 429 })
+  }
 
   if (!body.title || !body.document_type) {
     return NextResponse.json({ error: "Título e tipo do documento são obrigatórios" }, { status: 400 })
@@ -87,13 +96,14 @@ export async function POST(request: Request) {
     if (body.generate_pdf && storagePath) await supabase.storage.from(STORAGE_BUCKET).remove([storagePath])
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+  await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: "document.created", entityType: "documents", entityId: data.id, metadata: { document_type: data.document_type, patient_id: data.patient_id } })
   return NextResponse.json({ data })
 }
 
 export async function DELETE(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId } = result as any
+  const { supabase, ownerId, user } = result as any
 
   const { searchParams } = new URL(request.url)
   const id = searchParams.get("id")
@@ -107,5 +117,6 @@ export async function DELETE(request: Request) {
     .eq("user_id", ownerId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: "document.deleted", entityType: "documents", entityId: id })
   return NextResponse.json({ success: true })
 }
