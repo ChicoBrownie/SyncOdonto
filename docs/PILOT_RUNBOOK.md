@@ -2,7 +2,7 @@
 
 ## Antes de começar
 
-1. Criar um projeto Supabase separado e aplicar as migrações `001` a `005`.
+1. Criar um projeto Supabase separado e aplicar as migrações de estrutura `001` a `005`, `007`, `008`, `009` e `010`.
 2. Criar apenas contas fictícias para gestor, dentista e recepcionista.
 3. Copiar `.env.pilot.example` e preencher exclusivamente com as chaves do projeto de teste.
 4. Conferir URLs de callback no Supabase e nunca reutilizar a chave administrativa de produção.

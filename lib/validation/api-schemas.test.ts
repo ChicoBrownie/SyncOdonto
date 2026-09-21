@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { anamnesisInputSchema, appointmentInputSchema, dentalChartInputSchema, documentInputSchema, medicalRecordInputSchema, parseInput, patientInputSchema, staffCreateSchema } from "./api-schemas"
+import { anamnesisInputSchema, appointmentInputSchema, dentalChartInputSchema, documentInputSchema, medicalRecordInputSchema, parseInput, patientInputSchema, procedureCatalogInputSchema, staffCreateSchema, treatmentInputSchema } from "./api-schemas"
 
 describe("esquemas das APIs", () => {
   it("remove campos desconhecidos de pacientes", () => {
@@ -30,17 +30,33 @@ describe("esquemas das APIs", () => {
     expect(dentalChartInputSchema.safeParse({ patient_id, tooth_number: 11, condition: "desconhecida" }).success).toBe(false)
   })
 
-  it("aceita condições independentes nas cinco faces do dente", () => {
+  it("aceita condições independentes nas cinco faces e na raiz do dente", () => {
     const patient_id = "6cf937ae-ee8c-4856-bcf7-4f4d0ac58122"
     const parsed = dentalChartInputSchema.safeParse({
       patient_id,
       tooth_number: 26,
       condition: null,
-      surface_conditions: { mesial: "caries", occlusal: "filled" },
+      surface_conditions: { mesial: "caries", occlusal: "filled", root: "root_canal" },
       notes: null,
     })
     expect(parsed.success).toBe(true)
     expect(dentalChartInputSchema.safeParse({ patient_id, tooth_number: 26, condition: null, surface_conditions: { raiz: "caries" } }).success).toBe(false)
+  })
+
+  it("valida catálogo da clínica e item separado do plano de tratamento", () => {
+    const patient_id = "6cf937ae-ee8c-4856-bcf7-4f4d0ac58122"
+    const procedure_id = "f1e49ebf-b873-4578-b589-0b055a2f9ad9"
+    expect(procedureCatalogInputSchema.safeParse({ name: "Restauração", description: "Resina", default_price: 80, is_favorite: true }).success).toBe(true)
+    expect(treatmentInputSchema.safeParse({
+      patient_id,
+      procedure_id,
+      tooth_number: 16,
+      tooth_area: "root",
+      problem: "Lesão radicular",
+      treatment_type: "Restauração radicular",
+      status: "planned",
+      cost: 80,
+    }).success).toBe(true)
   })
 
   it("preserva a assinatura enviada em um documento válido", () => {

@@ -59,6 +59,13 @@ Os scripts SQL estão em `scripts/` e devem ser aplicados em ordem numérica:
 3. `003_paperless_management.sql`
 4. `004_paperless_templates.sql`
 5. `005_security_hardening.sql`
+6. `006_pilot_seed.sql` — somente para ambiente de piloto com dados fictícios
+7. `007_dental_chart_surfaces.sql`
+8. `008_odontogram_workflow.sql`
+9. `009_odontogram_versions_by_appointment.sql`
+10. `010_procedure_catalog_defaults_and_status_colors.sql`
+
+O script pontual `011_reset_tiago_odontogram.sql` é exclusivo para limpar os dados de teste do paciente Thiago Assuncao, preservando o histórico de versões.
 
 Antes de executar os scripts em uma base existente, faça backup e revise as diferenças no Supabase. Os scripts não substituem uma estratégia formal de migrações e não devem ser reaplicados cegamente em produção.
 

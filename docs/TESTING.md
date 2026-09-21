@@ -8,7 +8,7 @@
 - `npm run pilot:preflight -- .env.local`: valida a separação e as URLs do ambiente piloto sem imprimir segredos.
 - `npm run pilot:smoke -- https://URL-DO-PILOTO`: testa saúde, ambiente, login e latência após a publicação.
 
-O comando de build da Netlify executa `npm run verify` antes da compilação. Uma publicação é interrompida se alguma dessas verificações falhar.
+O build da Netlify executa TypeScript, testes e a compilação de produção. O lint deve ser executado localmente antes do envio. Uma publicação é interrompida se tipos, testes ou compilação falharem.
 
 ## Cobertura crítica automatizada
 

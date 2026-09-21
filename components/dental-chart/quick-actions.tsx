@@ -23,7 +23,7 @@ export function QuickActions({ toothNumber }: QuickActionsProps) {
         </Button>
         <Button variant="outline" className="w-full justify-start gap-2 bg-transparent">
           <Printer className="h-4 w-4" />
-          Imprimir Mapa
+          Imprimir Odontograma
         </Button>
       </CardContent>
     </Card>

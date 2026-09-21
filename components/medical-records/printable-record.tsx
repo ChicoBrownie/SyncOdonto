@@ -12,19 +12,23 @@ interface PrintableRecordProps {
 
 const CONDITION_ABBR: Record<ToothCondition, string> = {
   "Sem Registros": "",
-  "Saudável": "S",
+  "Ígido": "I",
   "Restaurado": "R",
-  "Atenção/Cárie": "C",
-  "Tratamento Canal": "TC",
+  "Cárie": "C",
+  "Canal tratado": "CT",
+  "Coroa": "CR",
+  "Fratura": "F",
   "Ausente": "X",
   "Implante": "IMP",
 }
 
 const CONDITION_LABELS: { value: ToothCondition; label: string }[] = [
-  { value: "Saudável", label: "S = Saudável" },
+  { value: "Ígido", label: "I = Ígido" },
   { value: "Restaurado", label: "R = Restaurado" },
-  { value: "Atenção/Cárie", label: "C = Cárie" },
-  { value: "Tratamento Canal", label: "TC = Tratamento de Canal" },
+  { value: "Cárie", label: "C = Cárie" },
+  { value: "Canal tratado", label: "CT = Canal tratado" },
+  { value: "Coroa", label: "CR = Coroa" },
+  { value: "Fratura", label: "F = Fratura" },
   { value: "Ausente", label: "X = Ausente" },
   { value: "Implante", label: "IMP = Implante" },
 ]
@@ -87,9 +91,9 @@ export function PrintableRecord({ patient, age, anamneses, clinicalRecords, exam
       </section>
 
       <section className="mb-6 break-inside-avoid">
-        <h2 className="text-lg font-semibold border-b border-black mb-2">Mapa Odontológico</h2>
+        <h2 className="text-lg font-semibold border-b border-black mb-2">Odontograma</h2>
         {registeredCount === 0 ? (
-          <p className="text-sm">Nenhum registro no mapa odontológico.</p>
+          <p className="text-sm">Nenhum registro no odontograma.</p>
         ) : (
           <>
             <div className="flex flex-col items-center gap-1 py-2">

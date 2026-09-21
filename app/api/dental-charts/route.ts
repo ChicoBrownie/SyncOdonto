@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId } = result as any
+  const { supabase, ownerId, user } = result as any
 
   const parsed = parseInput(dentalChartInputSchema, await request.json())
   if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
@@ -52,6 +52,8 @@ export async function POST(request: Request) {
         surface_conditions: body.surface_conditions ?? {},
         surfaces: Object.keys(body.surface_conditions ?? {}),
         notes: body.notes ?? null,
+        last_appointment_id: body.appointment_id ?? null,
+        last_professional_name: body.professional_name || user.user_metadata?.full_name || user.email || "Profissional não informado",
       },
       { onConflict: "user_id,patient_id,tooth_number" },
     )

@@ -26,6 +26,7 @@ import {
 import { FinancialView } from "@/components/reports/financial-view"
 import { ReportsView } from "@/components/reports/reports-view"
 import { DocumentManagementView } from "@/components/documents/document-management-view"
+import { ProcedureCatalogSettings } from "@/components/clinic/procedure-catalog-settings"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   DEFAULT_PERMISSIONS, getEffectivePermissions,
@@ -643,6 +644,8 @@ export function ClinicManagementView() {
                   ))}
                 </div>
               </Card>
+
+              <ProcedureCatalogSettings />
 
               <Card className="p-6">
                 <h3 className="font-semibold text-foreground mb-4">Horário de Funcionamento</h3>
