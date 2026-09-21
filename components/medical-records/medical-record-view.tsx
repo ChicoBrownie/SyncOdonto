@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -15,21 +14,16 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  Phone, Mail, Calendar, User, ArrowLeft, FileText,
-  MapPin, TrendingUp, Brain, Loader2, AlertCircle, Check, Stethoscope, Printer,
+  ArrowLeft, FileText,
+  Activity, Loader2, AlertCircle, Check, Printer,
 } from "lucide-react"
 import { AttachedExams } from "./attached-exams"
-import { ClinicalHistory } from "./clinical-history"
 import { MedicalInformation } from "./medical-information"
 import { AnamnesisSection } from "./anamnesis-section"
 import { ConsentForm } from "./consent-form"
 import { PrintableRecord } from "./printable-record"
 import { DentalChartView } from "@/components/dental-chart/dental-chart-view"
 import { type ToothCondition, DB_TO_CONDITION } from "@/components/dental-chart/dental-chart"
-import { CariesIndexChart } from "@/components/progress/caries-index-chart"
-import { PeriodontalHealthChart } from "@/components/progress/periodontal-health-chart"
-import { ComparisonChart } from "@/components/progress/comparison-chart"
-import { PatientAIAnalysis } from "./patient-ai-analysis"
 import { usePatient, updateAppointment } from "@/lib/hooks/use-data"
 import useSWR from "swr"
 import Link from "next/link"
@@ -52,13 +46,12 @@ interface MedicalRecordViewProps {
 
 export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
   const { patient, isLoading } = usePatient(patientId)
-  const { data: treatments } = useSWR(`/api/treatments?patient_id=${patientId}`, listFetcher)
   const { data: appointments, mutate: mutateAppointments } = useSWR(
     `/api/appointments?patient_id=${patientId}`,
     listFetcher
   )
 
-  // Mesmas URLs que AnamnesisSection / ClinicalHistory / AttachedExams usam internamente —
+  // Mesmas URLs que AnamnesisSection / AttachedExams usam internamente —
   // por isso o rawFetcher, e o unwrap de ".data" é feito aqui embaixo manualmente.
   const { data: anamnesesRes } = useSWR(`/api/anamnesis?patientId=${patientId}`, rawFetcher)
   const { data: clinicalRecordsRes } = useSWR(`/api/medical-records?patientId=${patientId}`, rawFetcher)
@@ -72,7 +65,8 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
   const dentalChartRows = Array.isArray(dentalChartRes?.data) ? dentalChartRes.data : []
   const toothData: Record<number, ToothCondition> = {}
   for (const row of dentalChartRows) {
-    const uiCondition = DB_TO_CONDITION[row.condition]
+    const firstRegionCondition = Object.values(row.surface_conditions || {})[0]
+    const uiCondition = DB_TO_CONDITION[row.condition] || DB_TO_CONDITION[String(firstRegionCondition || "")]
     if (uiCondition) toothData[row.tooth_number] = uiCondition
   }
   const consents = Array.isArray(consentsRes?.data) ? consentsRes.data : []
@@ -83,14 +77,15 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
   // ── Estado do modal de encerramento ──────────────────────────────────────
   const [closeOpen, setCloseOpen] = useState(false)
   const [closeModalCost, setCloseModalCost] = useState("")
+  const [odontogramTotal, setOdontogramTotal] = useState(0)
   const [isClosing, setIsClosing] = useState(false)
   const [closeModalError, setCloseModalError] = useState<string | null>(null)
 
   const openCloseModal = useCallback(() => {
-    setCloseModalCost(activeAppointment?.cost?.toString() || "")
+    setCloseModalCost(odontogramTotal > 0 ? odontogramTotal.toFixed(2) : activeAppointment?.cost?.toString() || "")
     setCloseModalError(null)
     setCloseOpen(true)
-  }, [activeAppointment])
+  }, [activeAppointment, odontogramTotal])
 
   const handleCloseFinish = async () => {
     if (!activeAppointment) return
@@ -118,43 +113,6 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
       setIsClosing(false)
     }
   }
-
-  // ── Dados de progresso ────────────────────────────────────────────────────
-  const treatmentsByMonth = (() => {
-    if (!treatments || treatments.length === 0) return []
-    const months: Record<string, { total: number; concluidos: number }> = {}
-    for (const t of treatments) {
-      const date = t.scheduled_date || t.created_at
-      if (!date) continue
-      const d = new Date(date)
-      const key = `${d.toLocaleString("pt-BR", { month: "short" })}/${String(d.getFullYear()).slice(2)}`
-      if (!months[key]) months[key] = { total: 0, concluidos: 0 }
-      months[key].total++
-      if (t.status === "Concluido") months[key].concluidos++
-    }
-    return Object.entries(months).map(([month, v]) => ({ month, ...v }))
-  })()
-
-  const statusChartData = (() => {
-    if (!treatments || treatments.length === 0) return []
-    const counts: Record<string, number> = {}
-    for (const t of treatments) {
-      counts[t.status] = (counts[t.status] || 0) + 1
-    }
-    const colorMap: Record<string, string> = {
-      "Concluido": "#22c55e",
-      "Em Andamento": "#3b82f6",
-      "Agendado": "#eab308",
-      "Cancelado": "#ef4444",
-    }
-    return Object.entries(counts).map(([name, value]) => ({
-      name, value, color: colorMap[name] || "#94a3b8",
-    }))
-  })()
-
-  const completedAppointments = appointments?.filter((a: any) => a.status === "Concluída").length || 0
-  const completedTreatments = treatments?.filter((t: any) => t.status === "Concluido").length || 0
-  const totalTreatments = treatments?.length || 0
 
   const getInitials = (name: string) =>
     name.split(" ").map((n) => n[0]).join("").substring(0, 2).toUpperCase()
@@ -193,44 +151,7 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
   const age = calculateAge(patient.date_of_birth)
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Link href="/pacientes">
-          <Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button>
-        </Link>
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Prontuário Eletrônico</h1>
-          <p className="text-muted-foreground">Histórico clínico completo e ferramentas integradas</p>
-        </div>
-      </div>
-
-      {/* ── Banner de atendimento em andamento ───────────────────────────── */}
-      {activeAppointment && (
-        <div className="flex items-center justify-between gap-4 rounded-lg border border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-950/30 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Stethoscope className="h-5 w-5 text-yellow-600 dark:text-yellow-400 shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300">
-                Consulta em andamento
-              </p>
-              <p className="text-xs text-yellow-700 dark:text-yellow-400">
-                {activeAppointment.procedure_type || "Consulta"} ·{" "}
-                {activeAppointment.time?.substring(0, 5) || "--:--"}
-                {activeAppointment.doctor_name ? ` · Dr(a). ${activeAppointment.doctor_name}` : ""}
-              </p>
-            </div>
-          </div>
-          <Button
-            size="sm"
-            className="shrink-0 bg-yellow-600 text-white hover:bg-yellow-700 dark:bg-yellow-500 dark:hover:bg-yellow-600"
-            onClick={openCloseModal}
-          >
-            <Check className="mr-1.5 h-3.5 w-3.5" />
-            Encerrar consulta
-          </Button>
-        </div>
-      )}
+    <div className="space-y-4">
 
       {/* ── Modal de encerramento ─────────────────────────────────────────── */}
       <Dialog open={closeOpen} onOpenChange={(open) => { if (!open) { setCloseOpen(false); setCloseModalError(null) } }}>
@@ -238,7 +159,7 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
           <DialogHeader>
             <DialogTitle>Encerrar consulta</DialogTitle>
             <DialogDescription>
-              Informe o valor devido por <strong>{patient.full_name}</strong>. A forma de pagamento será escolhida no Financeiro, no momento do recebimento.
+              Confira o total devido por <strong>{patient.full_name}</strong>. A forma de pagamento será escolhida no Financeiro, no momento do recebimento.
             </DialogDescription>
           </DialogHeader>
 
@@ -251,7 +172,7 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
             )}
 
             <div className="grid gap-2">
-              <Label>Valor cobrado (R$) *</Label>
+              <Label>{odontogramTotal > 0 ? "Total dos procedimentos (R$)" : "Valor cobrado (R$) *"}</Label>
               <Input
                 type="number"
                 min="0"
@@ -259,6 +180,7 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
                 placeholder="0,00"
                 value={closeModalCost}
                 onChange={(e) => { setCloseModalCost(e.target.value); setCloseModalError(null) }}
+                readOnly={odontogramTotal > 0}
                 autoFocus
               />
             </div>
@@ -286,17 +208,16 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Patient Info Card */}
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex items-start gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-xl font-semibold">
+      {/* Cabeçalho clínico compacto */}
+      <div className="flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-center sm:justify-between sm:pb-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link href="/pacientes" className="hidden sm:block"><Button variant="ghost" size="icon" aria-label="Voltar para pacientes"><ArrowLeft className="h-5 w-5" /></Button></Link>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary sm:h-11 sm:w-11">
                 {getInitials(patient.full_name)}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-2xl font-semibold text-foreground">{patient.full_name}</h2>
+          </div>
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+                  <h1 className="truncate text-lg font-semibold text-foreground sm:text-xl">{patient.full_name}</h1>
                   <Badge
                     variant={(patient.status as string) === "Ativo" ? "default" : "secondary"}
                     className={
@@ -309,122 +230,50 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
                   >
                     {patient.status}
                   </Badge>
-                </div>
-                <p className="text-sm text-muted-foreground mt-1">
+            </div>
+            <p className="text-sm text-muted-foreground">
                   {age ? `${age} anos` : ""} {patient.gender ? `- ${patient.gender}` : ""}
-                </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  {patient.phone && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Phone className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-foreground">{patient.phone}</span>
-                    </div>
-                  )}
-                  {patient.email && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-foreground">{patient.email}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 text-sm">
-                    <User className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">
-                      Cadastro: {new Date(patient.created_at).toLocaleDateString("pt-BR")}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="gap-2 bg-transparent"
-                onClick={() => window.print()}
-              >
-                <Printer className="h-4 w-4" />
-                <span className="hidden sm:inline">Imprimir Prontuário</span>
-              </Button>
-              <Link href="/pacientes">
-                <Button variant="outline" className="bg-transparent">Voltar</Button>
-              </Link>
-            </div>
+            </p>
           </div>
-        </CardContent>
-      </Card>
+          {activeAppointment && <Badge className="hidden bg-amber-100 text-amber-800 hover:bg-amber-100 md:inline-flex">Consulta em andamento</Badge>}
+        </div>
+        <div className="flex shrink-0 justify-end gap-2">
+          {activeAppointment && <Button size="sm" onClick={openCloseModal}><Check className="mr-1.5 h-3.5 w-3.5" />Encerrar</Button>}
+          <Button variant="outline" size="icon" className="bg-transparent" onClick={() => window.print()} aria-label="Imprimir prontuário"><Printer className="h-4 w-4" /></Button>
+        </div>
+      </div>
 
       {/* Tabs */}
       <Tabs defaultValue="prontuario" className="space-y-6">
         <TabsList className="w-full justify-start bg-muted/50 p-1">
           <TabsTrigger value="prontuario" className="gap-2">
             <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">Prontuário</span>
+            <span>Prontuário</span>
           </TabsTrigger>
-          <TabsTrigger value="mapa" className="gap-2">
-            <MapPin className="h-4 w-4" />
-            <span className="hidden sm:inline">Mapa Odontológico</span>
-          </TabsTrigger>
-          <TabsTrigger value="progresso" className="gap-2">
-            <TrendingUp className="h-4 w-4" />
-            <span className="hidden sm:inline">Progresso</span>
-          </TabsTrigger>
-          <TabsTrigger value="ia" className="gap-2">
-            <Brain className="h-4 w-4" />
-            <span className="hidden sm:inline">Análise IA</span>
+          <TabsTrigger value="odontograma" className="gap-2">
+            <Activity className="h-4 w-4" />
+            <span>Odontograma</span>
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="prontuario" className="space-y-6">
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 md:grid-cols-2">
+            <AnamnesisSection patientId={patientId} />
             <MedicalInformation patientId={patientId} />
             <AttachedExams patientId={patientId} />
+            <ConsentForm patientId={patientId} />
           </div>
-          <AnamnesisSection patientId={patientId} />
-          <ConsentForm patientId={patientId} />
-          <ClinicalHistory patientId={patientId} />
         </TabsContent>
 
-        <TabsContent value="mapa" className="space-y-6">
-          <DentalChartView patientId={patientId} />
+        <TabsContent value="odontograma" className="space-y-6">
+          <DentalChartView
+            patientId={patientId}
+            appointmentId={activeAppointment?.id || null}
+            professionalName={activeAppointment?.doctor_name || null}
+            onTreatmentTotalChange={setOdontogramTotal}
+          />
         </TabsContent>
 
-        <TabsContent value="progresso" className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground">Total de Tratamentos</p>
-                <p className="mt-2 text-3xl font-bold text-foreground">{totalTreatments}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Registrados no sistema</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground">Tratamentos Concluídos</p>
-                <p className="mt-2 text-3xl font-bold text-foreground">{completedTreatments}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {totalTreatments > 0 ? `${Math.round((completedTreatments / totalTreatments) * 100)}% de conclusão` : "Nenhum ainda"}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <p className="text-sm text-muted-foreground flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />Consultas Realizadas
-                </p>
-                <p className="mt-2 text-3xl font-bold text-foreground">{completedAppointments}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Concluídas</p>
-              </CardContent>
-            </Card>
-          </div>
-          <div className="grid gap-6 lg:grid-cols-2">
-            <CariesIndexChart data={treatmentsByMonth} />
-            <PeriodontalHealthChart data={statusChartData} />
-          </div>
-          <ComparisonChart treatments={treatments || []} />
-        </TabsContent>
-
-        <TabsContent value="ia" className="space-y-6">
-          <PatientAIAnalysis patientId={patientId} />
-        </TabsContent>
       </Tabs>
 
       <PrintableRecord

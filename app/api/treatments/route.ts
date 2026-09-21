@@ -2,6 +2,7 @@ import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 import { stripImmutableTenantFields } from "@/lib/security/request-data"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
+import { parseInput, treatmentInputSchema } from "@/lib/validation/api-schemas"
 
 export async function GET(request: Request) {
   const result = await getClinicScopedClient()
@@ -38,9 +39,11 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const result = await getClinicScopedClient()
   if ("error" in result && result.error) return result.error
-  const { supabase, ownerId } = result as any
+  const { supabase, ownerId, user } = result as any
 
-  const body = stripImmutableTenantFields(await request.json())
+  const parsed = parseInput(treatmentInputSchema, stripImmutableTenantFields(await request.json()))
+  if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const body = parsed.data
 
   if (!(await patientBelongsToClinic(supabase, body.patient_id, ownerId))) {
     return NextResponse.json({ error: "Paciente não pertence à clínica." }, { status: 403 })
@@ -48,7 +51,11 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from("treatments")
-    .insert({ ...body, user_id: ownerId })
+    .insert({
+      ...body,
+      professional_name: body.professional_name || user.user_metadata?.full_name || user.email || "Profissional não informado",
+      user_id: ownerId,
+    })
     .select()
     .single()
 

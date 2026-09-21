@@ -11,6 +11,8 @@ const CLINIC_TABLES = [
   "patients",
   "appointments",
   "dental_charts",
+  "dental_chart_versions",
+  "procedure_catalog",
   "medical_records",
   "treatments",
   "documents",

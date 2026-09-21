@@ -117,10 +117,38 @@ export const dentalChartInputSchema = z.object({
   tooth_number: z.number().int().min(11).max(85),
   condition: z.enum(["healthy", "caries", "filled", "extracted", "crown", "implant", "bridge", "root_canal", "fracture", "absent"]).nullable(),
   surface_conditions: z.record(
-    z.enum(["vestibular", "lingual", "mesial", "distal", "occlusal"]),
+    z.enum(["vestibular", "lingual", "mesial", "distal", "occlusal", "root"]),
     z.enum(["healthy", "caries", "filled", "extracted", "crown", "implant", "bridge", "root_canal", "fracture", "absent"]),
   ).optional(),
   notes: nullableText(5000),
+  appointment_id: uuid.nullable().optional(),
+  professional_name: nullableText(160),
+})
+
+export const procedureCatalogInputSchema = z.object({
+  name: z.string().trim().min(2).max(160),
+  description: nullableText(2000),
+  default_price: z.number().min(0).max(100_000_000),
+  is_favorite: z.boolean().optional(),
+  is_active: z.boolean().optional(),
+})
+
+export const treatmentInputSchema = z.object({
+  patient_id: uuid,
+  procedure_id: uuid.nullable().optional(),
+  appointment_id: uuid.nullable().optional(),
+  tooth_number: z.number().int().min(11).max(85).nullable().optional(),
+  tooth_area: z.enum(["vestibular", "lingual", "mesial", "distal", "occlusal", "root", "whole"]).nullable().optional(),
+  problem: z.string().trim().min(1).max(500),
+  treatment_type: z.string().trim().min(2).max(200),
+  description: nullableText(2000),
+  status: z.enum(["planned", "in_progress", "completed", "cancelled"]),
+  cost: z.number().min(0).max(100_000_000),
+  notes: nullableText(5000),
+  scheduled_date: nullableText(30),
+  completed_date: nullableText(30),
+  result_condition: z.enum(["healthy", "caries", "filled", "crown", "implant", "root_canal", "fracture", "absent"]).nullable().optional(),
+  professional_name: nullableText(160),
 })
 
 export const medicalRecordInputSchema = z.object({

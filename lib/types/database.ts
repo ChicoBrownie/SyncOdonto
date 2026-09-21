@@ -66,6 +66,20 @@ export type DentalChartEntry = {
   surfaces: string[] | null
   surface_conditions: Record<string, string>
   notes: string | null
+  last_appointment_id?: string | null
+  last_professional_name?: string | null
+  updated_at: string
+}
+
+export type ProcedureCatalogItem = {
+  id: string
+  user_id: string
+  name: string
+  description: string | null
+  default_price: number
+  is_favorite: boolean
+  is_active: boolean
+  created_at: string
   updated_at: string
 }
 
@@ -74,6 +88,10 @@ export type Treatment = {
   patient_id: string
   user_id: string
   tooth_number: number | null
+  tooth_area?: "vestibular" | "lingual" | "mesial" | "distal" | "occlusal" | "root" | "whole" | null
+  problem?: string | null
+  procedure_id?: string | null
+  appointment_id?: string | null
   treatment_type: string
   description: string | null
   status: 'planned' | 'in_progress' | 'completed' | 'cancelled'
@@ -81,6 +99,8 @@ export type Treatment = {
   notes: string | null
   scheduled_date: string | null
   completed_date: string | null
+  result_condition?: string | null
+  professional_name?: string | null
   created_at: string
   updated_at: string
 }
