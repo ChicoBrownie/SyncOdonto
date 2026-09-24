@@ -23,11 +23,7 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { FinancialView } from "@/components/reports/financial-view"
-import { ReportsView } from "@/components/reports/reports-view"
-import { DocumentManagementView } from "@/components/documents/document-management-view"
 import { ProcedureCatalogSettings } from "@/components/clinic/procedure-catalog-settings"
-import { useRouter, useSearchParams } from "next/navigation"
 import {
   DEFAULT_PERMISSIONS, getEffectivePermissions,
   type StaffAccessRole, type StaffPermissions,
@@ -55,12 +51,10 @@ type CredentialsInfo = {
   emailDelivered: boolean
 }
 
-export function ClinicManagementView() {
-  type ClinicTab = "equipe" | "financeiro" | "configuracoes" | "paperless" | "relatorios"
-  const searchParams = useSearchParams()
-  const router = useRouter()
-  const requestedTab = searchParams.get("tab") as ClinicTab | null
-  const [activeTab, setActiveTab] = useState<ClinicTab>(requestedTab || "equipe")
+type ClinicTab = "equipe" | "financeiro" | "configuracoes" | "paperless" | "relatorios"
+
+export function ClinicManagementView({ initialTab = "equipe" }: { initialTab?: ClinicTab }) {
+  const [activeTab] = useState<ClinicTab>(initialTab)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [editingMember, setEditingMember] = useState<any>(null)
@@ -83,17 +77,6 @@ export function ClinicManagementView() {
   // cargo. A flag `virtual` só indica "este card é o gestor renderizado
   // sinteticamente", não "este card é você".
   const isMe = (member: any) => !!myUserId && member.auth_user_id === myUserId
-  // Antes a checagem era só "isGestor" — agora cada aba olha pra permissão
-  // granular do usuário logado, que o próprio gestor configura por membro.
-  const myPermissions: StaffPermissions = accessRes?.permissions || DEFAULT_PERMISSIONS.gestor
-  const visibleTabs = (["equipe", "financeiro", "configuracoes", "paperless", "relatorios"] as const).filter((tab) => {
-    if (tab === "equipe") return true
-    if (tab === "financeiro") return myPermissions.financeiro
-    if (tab === "configuracoes") return myPermissions.configuracoes
-    if (tab === "relatorios") return myPermissions.relatorios
-    if (tab === "paperless") return true
-    return false
-  })
 
   const today = new Date().toISOString().split("T")[0]
   const { data: apptRes } = useSWR(`/api/appointments?date=${today}`, fetcher)
@@ -307,37 +290,8 @@ export function ClinicManagementView() {
       .substring(0, 2)
       .toUpperCase()
 
-  useEffect(() => {
-    if (!visibleTabs.includes(activeTab)) setActiveTab("equipe")
-  }, [visibleTabs, activeTab])
-
-  const selectTab = (tab: ClinicTab) => {
-    setActiveTab(tab)
-    router.replace(`/gestao-clinica?tab=${tab}`, { scroll: false })
-  }
-
-  const tabLabels: Record<ClinicTab, string> = {
-    equipe: "Equipe",
-    financeiro: "Financeiro",
-    configuracoes: "Configurações",
-    paperless: "Gestão Paperless",
-    relatorios: "Relatórios",
-  }
-
   return (
     <div className="px-4 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3 lg:px-8 lg:pb-8 lg:pt-4 space-y-5">
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-border overflow-x-auto">
-        {visibleTabs.map(tab => (
-          <button key={tab} onClick={() => selectTab(tab)}
-            className={`px-4 py-2 font-medium whitespace-nowrap capitalize ${
-              activeTab === tab ? "text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"
-            }`}>
-            {tabLabels[tab]}
-          </button>
-        ))}
-      </div>
-
       {/* ABA EQUIPE */}
       {activeTab === "equipe" && (
         <div className="space-y-4">
@@ -609,10 +563,6 @@ export function ClinicManagementView() {
         </div>
       )}
 
-      {activeTab === "financeiro" && (
-        <div className="-m-4 md:-m-6 lg:-m-8"><FinancialView /></div>
-      )}
-
       {activeTab === "configuracoes" && (
         <div className="space-y-4">
           <h2 className="text-xl font-semibold text-foreground">Configurações da Clínica</h2>
@@ -681,17 +631,6 @@ export function ClinicManagementView() {
         </div>
       )}
 
-      {activeTab === "paperless" && (
-        <div key="paperless" className="[&>div>div:first-child]:hidden">
-          <DocumentManagementView />
-        </div>
-      )}
-
-      {activeTab === "relatorios" && (
-        <div key="relatorios" className="-m-4 md:-m-6 lg:-m-8 [&>div>div:first-child]:hidden">
-          <ReportsView />
-        </div>
-      )}
     </div>
   )
 }

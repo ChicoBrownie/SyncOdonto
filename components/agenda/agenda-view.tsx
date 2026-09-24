@@ -127,8 +127,6 @@ export function AgendaView() {
 
   const dateString = toLocalDateString(selectedDate)
   const todayString = toLocalDateString(new Date())
-  const isPastDate = dateString < todayString
-
   const { appointments, isLoading, error, mutate } = useAppointments({ date: dateString })
   const appointmentsList: any[] = (appointments as any[]) || []
 
@@ -169,25 +167,11 @@ export function AgendaView() {
     setFormError(null)
   }
 
-  const getCurrentTimeString = () => {
-    const now = new Date()
-    return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
-  }
-
   const handleCreateAppointment = async () => {
     setFormError(null)
     if (!newAppointment.patient_id) { setFormError("Selecione um paciente."); return }
     if (!newAppointment.time) { setFormError("Informe o horário."); return }
     if (!newAppointment.doctor_name?.trim()) { setFormError("Informe o dentista responsável."); return }
-    if (dateString < todayString) { setFormError("Não é possível agendar em datas passadas."); return }
-    if (dateString === todayString) {
-      const now = new Date()
-      const nowMinutes = now.getHours() * 60 + now.getMinutes()
-      if (timeToMinutes(newAppointment.time) <= nowMinutes) {
-        setFormError("Não é possível agendar para um horário que já passou.")
-        return
-      }
-    }
     setIsCreating(true)
     try {
       await createAppointment({
@@ -577,7 +561,7 @@ export function AgendaView() {
               </div>
               <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm() }}>
                 <DialogTrigger asChild>
-                  <Button className="gap-2" disabled={isPastDate && viewMode === "day"}>
+                  <Button className="gap-2">
                     <Plus className="h-4 w-4" />
                     <span className="hidden sm:inline">Novo Agendamento</span>
                     <span className="sm:hidden">Novo</span>
@@ -616,7 +600,6 @@ export function AgendaView() {
                       <div className="grid gap-2">
                         <Label>Horário *</Label>
                         <Input type="time" value={newAppointment.time}
-                          min={dateString === todayString ? getCurrentTimeString() : undefined}
                           onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })} />
                       </div>
                       <div className="grid gap-2">
@@ -740,11 +723,9 @@ export function AgendaView() {
                 ) : appointmentsList.length === 0 ? (
                   <div className="text-center py-8 px-4">
                     <p className="text-muted-foreground">Nenhuma consulta agendada para este dia</p>
-                    {!isPastDate && (
-                      <Button className="mt-4 bg-transparent" variant="outline" onClick={() => setIsDialogOpen(true)}>
-                        <Plus className="h-4 w-4 mr-2" />Agendar Consulta
-                      </Button>
-                    )}
+                    <Button className="mt-4 bg-transparent" variant="outline" onClick={() => setIsDialogOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />Agendar Consulta
+                    </Button>
                   </div>
                 ) : (
                   <>

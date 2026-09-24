@@ -9,6 +9,7 @@ const GESTOR_ONLY = [
 const PERMISSION_ROUTES: Record<string, keyof StaffPermissions> = {
   '/financeiro': 'financeiro',
   '/relatorios': 'relatorios',
+  '/configuracoes': 'configuracoes',
 }
 
 export async function middleware(request: NextRequest) {

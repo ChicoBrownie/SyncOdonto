@@ -38,7 +38,7 @@ const quickAccessItems = [
   {
     icon: DollarSign,
     label: "Financeiro",
-    href: "/gestao-clinica?tab=financeiro",
+    href: "/financeiro",
     color: "text-emerald-600",
     bgColor: "bg-emerald-600/10",
     permission: "financeiro" as const,

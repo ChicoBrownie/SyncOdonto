@@ -8,7 +8,8 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 
-type Period = "day" | "week" | "month"
+type Period = "day" | "week" | "month" | "year" | "custom"
+type StandardPeriod = Exclude<Period, "custom">
 type Row = Record<string, string | number>
 const COLORS = ["#0ea5e9", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"]
 const fetcher = async (url: string) => {
@@ -20,7 +21,7 @@ const fetcher = async (url: string) => {
 function localISO(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 }
-function getRange(period: Period, offset: number) {
+function getRange(period: StandardPeriod, offset: number) {
   const date = new Date(); date.setHours(12, 0, 0, 0)
   if (period === "day") { date.setDate(date.getDate() + offset); return { start: date, end: new Date(date) } }
   if (period === "week") {
@@ -28,8 +29,16 @@ function getRange(period: Period, offset: number) {
     const end = new Date(date); end.setDate(end.getDate() + 6)
     return { start: date, end }
   }
+  if (period === "year") {
+    date.setFullYear(date.getFullYear() + offset, 0, 1)
+    return { start: date, end: new Date(date.getFullYear(), 11, 31, 12) }
+  }
   date.setMonth(date.getMonth() + offset, 1)
   return { start: date, end: new Date(date.getFullYear(), date.getMonth() + 1, 0, 12) }
+}
+function fromLocalISO(value: string) {
+  const [year, month, day] = value.split("-").map(Number)
+  return new Date(year, month - 1, day, 12)
 }
 function formatDate(date: Date, withYear = true) {
   return date.toLocaleDateString("pt-BR", withYear ? { day: "2-digit", month: "2-digit", year: "numeric" } : { day: "2-digit", month: "2-digit" })
@@ -48,8 +57,19 @@ function downloadCsv(filename: string, rows: Row[]) {
 export function ReportsView() {
   const [period, setPeriod] = useState<Period>("week")
   const [offset, setOffset] = useState(0)
-  const range = useMemo(() => getRange(period, offset), [period, offset])
-  const previous = useMemo(() => getRange(period, offset - 1), [period, offset])
+  const todayISO = localISO(new Date())
+  const [customStart, setCustomStart] = useState(todayISO)
+  const [customEnd, setCustomEnd] = useState(todayISO)
+  const range = useMemo(() => period === "custom"
+    ? { start: fromLocalISO(customStart), end: fromLocalISO(customEnd) }
+    : getRange(period, offset), [customEnd, customStart, offset, period])
+  const previous = useMemo(() => {
+    if (period !== "custom") return getRange(period, offset - 1)
+    const duration = Math.round((range.end.getTime() - range.start.getTime()) / 86_400_000) + 1
+    const end = new Date(range.start); end.setDate(end.getDate() - 1)
+    const start = new Date(end); start.setDate(start.getDate() - duration + 1)
+    return { start, end }
+  }, [offset, period, range])
   const startISO = localISO(range.start), endISO = localISO(range.end)
   const { data: appointmentsRes, isLoading: loadingAppointments } = useSWR(`/api/appointments?startDate=${startISO}&endDate=${endISO}`, fetcher)
   const { data: previousRes } = useSWR(`/api/appointments?startDate=${localISO(previous.start)}&endDate=${localISO(previous.end)}`, fetcher)
@@ -73,7 +93,7 @@ export function ReportsView() {
     const result = [], cursor = new Date(range.start)
     while (cursor <= range.end) {
       const date = localISO(cursor), items = appointments.filter(item => item.date === date)
-      result.push({ label: period === "month" ? formatDate(cursor, false) : cursor.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit" }).replace(".", ""), total: items.length, concluídas: items.filter(item => item.status === "Concluída").length, canceladas: items.filter(item => item.status === "Cancelada").length })
+      result.push({ label: period === "day" ? cursor.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit" }).replace(".", "") : formatDate(cursor, false), total: items.length, concluídas: items.filter(item => item.status === "Concluída").length, canceladas: items.filter(item => item.status === "Cancelada").length })
       cursor.setDate(cursor.getDate() + 1)
     }
     return result
@@ -89,7 +109,7 @@ export function ReportsView() {
     return { name, role, appointments: own.length, completed: ownCompleted.length, cancellations: own.filter(item => item.status === "Cancelada").length, production: ownCompleted.reduce((sum, item) => sum + Number(item.cost || 0), 0) }
   }), [appointments, staff])
   const periodLabel = period === "day" ? formatDate(range.start) : `${formatDate(range.start)} a ${formatDate(range.end)}`
-  const periodName = { day: "Diário", week: "Semanal", month: "Mensal" }[period]
+  const periodName = { day: "Diário", week: "Semanal", month: "Mensal", year: "Anual", custom: "Personalizado" }[period]
   const setNewPeriod = (value: Period) => { setPeriod(value); setOffset(0) }
   const appointmentRows = appointments.map(item => ({ Data: item.date, Horário: String(item.time || "").slice(0, 5), Paciente: item.patient?.full_name || "", Dentista: item.doctor_name || "", Procedimento: item.procedure_type || item.title || "", Status: item.status || "", Valor: Number(item.cost || 0) }))
   const patientRows = patients.filter(item => String(item.created_at || "").slice(0, 10) >= startISO && String(item.created_at || "").slice(0, 10) <= endISO).map(item => ({ Paciente: item.full_name || "", Telefone: item.phone || "", Email: item.email || "", Cadastro: String(item.created_at || "").slice(0, 10) }))
@@ -106,7 +126,7 @@ export function ReportsView() {
   ]
 
   return <div className="space-y-6 p-4 md:p-6 lg:p-8">
-    <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><h1 className="text-2xl font-bold md:text-3xl">Relatório {periodName}</h1><p className="mt-1 text-muted-foreground">{periodLabel}</p></div><div className="flex flex-col gap-2 sm:flex-row sm:items-center"><div className="flex rounded-lg border p-1">{(["day", "week", "month"] as Period[]).map(value => <Button key={value} size="sm" variant={period === value ? "default" : "ghost"} onClick={() => setNewPeriod(value)}>{{ day: "Dia", week: "Semana", month: "Mês" }[value]}</Button>)}</div><div className="flex gap-2"><Button variant="outline" size="icon" aria-label="Período anterior" onClick={() => setOffset(value => value - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" onClick={() => setOffset(0)} disabled={offset === 0}>Atual</Button><Button variant="outline" size="icon" aria-label="Próximo período" onClick={() => setOffset(value => value + 1)} disabled={offset >= 0}><ChevronRight className="h-4 w-4" /></Button></div></div></div>
+    <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><h1 className="text-2xl font-bold md:text-3xl">Relatório {periodName}</h1><p className="mt-1 text-muted-foreground">{periodLabel}</p></div><div className="flex flex-col gap-2"><div className="flex flex-wrap rounded-lg border p-1">{(["day", "week", "month", "year", "custom"] as Period[]).map(value => <Button key={value} size="sm" variant={period === value ? "default" : "ghost"} onClick={() => setNewPeriod(value)}>{{ day: "Hoje", week: "Semana", month: "Mês", year: "Ano", custom: "Personalizado" }[value]}</Button>)}<Button size="sm" variant={period === "day" && offset === -1 ? "default" : "ghost"} onClick={() => { setPeriod("day"); setOffset(-1) }}>Ontem</Button></div>{period === "custom" ? <div className="flex flex-wrap items-end gap-2"><label className="grid gap-1 text-xs text-muted-foreground">Início<input className="h-9 rounded-md border bg-background px-3 text-sm text-foreground" type="date" value={customStart} max={customEnd} onChange={event => setCustomStart(event.target.value)} /></label><label className="grid gap-1 text-xs text-muted-foreground">Fim<input className="h-9 rounded-md border bg-background px-3 text-sm text-foreground" type="date" value={customEnd} min={customStart} max={todayISO} onChange={event => setCustomEnd(event.target.value)} /></label></div> : <div className="flex gap-2"><Button variant="outline" size="icon" aria-label="Período anterior" onClick={() => setOffset(value => value - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button variant="outline" onClick={() => setOffset(0)} disabled={offset === 0}>Atual</Button><Button variant="outline" size="icon" aria-label="Próximo período" onClick={() => setOffset(value => value + 1)} disabled={offset >= 0}><ChevronRight className="h-4 w-4" /></Button></div>}</div></div>
     {loading ? <div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div> : <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[
         { label: "Consultas", value: appointments.length, detail: `${comparison >= 0 ? "+" : ""}${comparison}% vs. período anterior`, icon: Calendar },
