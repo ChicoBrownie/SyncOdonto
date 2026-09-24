@@ -1,7 +1,7 @@
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { NextResponse } from "next/server"
 import { stripImmutableTenantFields } from "@/lib/security/request-data"
-import { getLocalDate, getLocalMinutes, hasTimeConflict, parseMinutes } from "@/lib/appointments/scheduling"
+import { hasTimeConflict } from "@/lib/appointments/scheduling"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
 import { appointmentInputSchema, parseInput } from "@/lib/validation/api-schemas"
 
@@ -61,22 +61,6 @@ export async function POST(request: Request) {
   }
 
   const duration = body.duration_minutes ?? 60
-
-  // FIX BUG 4: usa data de Brasília para comparação
-  const today = getLocalDate()
-
-  if (body.date < today) {
-    return NextResponse.json({ error: "Não é possível agendar em datas passadas." }, { status: 400 })
-  }
-
-  // FIX BUG 1: compara minutos sem adicionar buffer de horas
-  if (body.date === today) {
-    const nowMinutes = getLocalMinutes()
-    const apptMinutes = parseMinutes(body.time)
-    if (apptMinutes <= nowMinutes) {
-      return NextResponse.json({ error: "Não é possível agendar para um horário que já passou." }, { status: 400 })
-    }
-  }
 
   // Busca agendamentos existentes na mesma data
   const { data: existingAppointments, error: fetchError } = await supabase

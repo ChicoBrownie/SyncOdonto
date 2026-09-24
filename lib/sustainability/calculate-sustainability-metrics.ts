@@ -4,6 +4,10 @@ const SHEETS_PER_DOCUMENT = 3
 const SHEETS_PER_TREE = 10_000
 const CO2_KG_PER_SHEET = 0.0045
 const WATER_LITERS_PER_SHEET = 10
+// Referência para impressão leve em jato de tinta: a quantidade real varia
+// conforme impressora, cobertura da página e tipo de cartucho.
+const INK_ML_PER_SHEET = 0.05
+const INK_ML_PER_CARTRIDGE = 8
 
 // Tipos que representam documentos clínicos emitidos pelo produto. Anexos e
 // exames enviados pelo usuário não entram na estimativa de papel substituído.
@@ -30,6 +34,8 @@ export type SustainabilityPeriodMetrics = {
   trees: number
   co2Kg: number
   waterLiters: number
+  inkMl: number
+  cartridgeEquivalents: number
 }
 
 export type SustainabilityMetrics = {
@@ -38,8 +44,9 @@ export type SustainabilityMetrics = {
   calculatedAt: string
 }
 
-function convertDocumentsToImpact(documents: number): SustainabilityPeriodMetrics {
+export function convertDocumentsToImpact(documents: number): SustainabilityPeriodMetrics {
   const sheets = documents * SHEETS_PER_DOCUMENT
+  const inkMl = sheets * INK_ML_PER_SHEET
 
   return {
     documents,
@@ -47,6 +54,8 @@ function convertDocumentsToImpact(documents: number): SustainabilityPeriodMetric
     trees: sheets / SHEETS_PER_TREE,
     co2Kg: sheets * CO2_KG_PER_SHEET,
     waterLiters: sheets * WATER_LITERS_PER_SHEET,
+    inkMl,
+    cartridgeEquivalents: inkMl / INK_ML_PER_CARTRIDGE,
   }
 }
 

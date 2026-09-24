@@ -10,18 +10,14 @@ import {
   Users,
   Calendar,
   Building2,
+  DollarSign,
+  FileText,
   Leaf,
+  Settings,
   X,
 } from "lucide-react"
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
-
-const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-  { icon: Users, label: "Lista de Pacientes", href: "/pacientes" },
-  { icon: Calendar, label: "Agenda Inteligente", href: "/agenda" },
-  { icon: Building2, label: "Gestão da Clínica", href: "/gestao-clinica" },
-]
 
 interface SidebarProps {
   isOpen?: boolean
@@ -71,7 +67,18 @@ function SidebarContent({
   const { data: accessRes } = useSWR("/api/auth/check-access", fetcher)
   const { data: sustainabilityRes } = useSWR("/api/sustainability-metrics", fetcher)
   const isGestor = (accessRes?.access_role || "gestor") === "gestor"
-  const savedSheets = Number(sustainabilityRes?.data?.month?.sheets || 0)
+  const permissions = accessRes?.permissions
+  const savedSheets = Number(sustainabilityRes?.data?.allTime?.sheets || 0)
+  const menuItems = [
+    { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+    { icon: Users, label: "Lista de Pacientes", href: "/pacientes" },
+    { icon: Calendar, label: "Agenda Inteligente", href: "/agenda" },
+    { icon: Building2, label: "Equipe", href: "/gestao-clinica" },
+    ...(permissions?.financeiro === false ? [] : [{ icon: DollarSign, label: "Financeiro", href: "/financeiro" }]),
+    ...(permissions?.configuracoes === false ? [] : [{ icon: Settings, label: "Configurações", href: "/configuracoes" }]),
+    ...(permissions?.relatorios === false ? [] : [{ icon: FileText, label: "Relatórios", href: "/relatorios" }]),
+    { icon: FileText, label: "Impacto Sustentável", href: "/gestao-paperless" },
+  ]
 
   return (
     <div className="flex h-full flex-col">
@@ -135,7 +142,7 @@ function SidebarContent({
               <p className="text-xs font-medium text-success">Impacto Sustentável</p>
               <p className="text-xs text-muted-foreground mt-1">
                 {savedSheets > 0 ? <>
-                  Este mês a clínica evitou o uso estimado de{" "}
+                  A clínica já evitou o uso estimado de{" "}
                   <span className="font-semibold text-foreground">{savedSheets.toLocaleString("pt-BR")} {savedSheets === 1 ? "folha" : "folhas"} de papel</span> 🌱
                 </> : "O impacto aparecerá após a emissão de documentos digitais."}
               </p>
