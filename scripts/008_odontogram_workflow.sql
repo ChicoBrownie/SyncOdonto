@@ -250,9 +250,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.capture_dental_chart_version(UUID, UUID, TEXT, UUID, UUID) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.capture_version_from_dental_chart() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.capture_version_from_treatment() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.capture_dental_chart_version(UUID, UUID, TEXT, UUID, UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.capture_version_from_dental_chart() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.capture_version_from_treatment() FROM PUBLIC, anon, authenticated;
 
 DROP TRIGGER IF EXISTS dental_chart_version_after_change ON public.dental_charts;
 CREATE TRIGGER dental_chart_version_after_change

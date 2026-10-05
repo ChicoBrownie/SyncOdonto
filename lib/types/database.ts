@@ -89,6 +89,7 @@ export type Treatment = {
   user_id: string
   tooth_number: number | null
   tooth_area?: "vestibular" | "lingual" | "mesial" | "distal" | "occlusal" | "root" | "whole" | null
+  tooth_areas?: ("vestibular" | "lingual" | "mesial" | "distal" | "occlusal" | "root" | "whole")[] | null
   problem?: string | null
   procedure_id?: string | null
   appointment_id?: string | null

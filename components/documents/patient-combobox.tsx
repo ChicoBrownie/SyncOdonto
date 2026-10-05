@@ -14,15 +14,20 @@ export function PatientCombobox({ value, onChange }: { value: PatientOption | nu
   const [query, setQuery] = useState("")
   const [patients, setPatients] = useState<PatientOption[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
 
   useEffect(() => {
     const controller = new AbortController()
     const timer = setTimeout(async () => {
       setLoading(true)
+      setError("")
       try {
         const response = await fetch(`/api/patients?limit=20&search=${encodeURIComponent(query)}`, { signal: controller.signal })
         const payload = await response.json()
-        if (response.ok) setPatients(payload.data || [])
+        if (!response.ok) throw new Error(payload.error || "Não foi possível buscar pacientes.")
+        setPatients(payload.data || [])
+      } catch (error) {
+        if (!controller.signal.aborted) { setPatients([]); setError(error instanceof Error ? error.message : "Não foi possível buscar pacientes.") }
       } finally {
         if (!controller.signal.aborted) setLoading(false)
       }
@@ -33,8 +38,8 @@ export function PatientCombobox({ value, onChange }: { value: PatientOption | nu
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between bg-transparent font-normal">
-          {value?.full_name || "Buscar por nome ou CPF..."}
+        <Button type="button" variant="outline" role="combobox" aria-expanded={open} className="min-h-11 w-full justify-between bg-transparent font-normal">
+          <span className="truncate">{value?.full_name || "Buscar por nome ou CPF..."}</span>
           <ChevronsUpDown className="h-4 w-4 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -43,7 +48,8 @@ export function PatientCombobox({ value, onChange }: { value: PatientOption | nu
           <CommandInput value={query} onValueChange={setQuery} placeholder="Digite nome ou CPF..." />
           <CommandList>
             {loading && <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin" /></div>}
-            {!loading && <CommandEmpty>Nenhum paciente encontrado.</CommandEmpty>}
+            {error && <p role="alert" className="p-3 text-sm text-destructive">{error}</p>}
+            {!loading && !error && <CommandEmpty>Nenhum paciente encontrado.</CommandEmpty>}
             <CommandGroup>
               {patients.map((patient) => (
                 <CommandItem key={patient.id} value={patient.id} onSelect={() => { onChange(patient); setOpen(false) }}>

@@ -71,6 +71,7 @@ export const DB_TO_CONDITION: Record<string, ToothCondition> = {
 interface DentalChartProps {
   selectedTooth: number | null
   selectedArea?: ToothArea | null
+  selectedAreas?: ToothArea[]
   onAreaSelect: (tooth: number, area: ToothArea) => void
   toothData: Record<number, ToothState>
   treatmentIndicators?: ToothTreatmentIndicators
@@ -87,12 +88,13 @@ function conditionHex(condition?: ToothCondition) {
   return "#ffffff"
 }
 
-function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, multiSelectMode, checked, upper, readOnly, mobileExpanded = false, onSelect }: {
+function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, selectedAreas = [], multiSelectMode, checked, upper, readOnly, mobileExpanded = false, onSelect }: {
   number: number
   state?: ToothState
   indicators?: Partial<Record<ToothArea, ToothTreatmentIndicator[]>>
   selected: boolean
   selectedArea?: ToothArea | null
+  selectedAreas?: ToothArea[]
   multiSelectMode: boolean
   checked: boolean
   upper: boolean
@@ -125,7 +127,7 @@ function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, 
   const areaClass = (area: ToothArea) => cn(
     "stroke-slate-400 transition-all focus:outline-none",
     !readOnly && "cursor-pointer hover:brightness-90",
-    selected && selectedArea === area && "stroke-primary stroke-[2.8]",
+    selected && (selectedArea === area || selectedAreas.includes(area)) && "stroke-primary stroke-[2.8]",
   )
 
   const quadrant = Math.floor(number / 10)
@@ -150,7 +152,7 @@ function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, 
           "mb-0.5 rounded font-semibold leading-3 focus:outline-none focus:ring-2 focus:ring-primary/50",
           mobileExpanded ? "px-1 py-0.5 text-[10px]" : "px-0 py-0 text-[8px] sm:px-1 sm:py-0.5 sm:text-[10px] lg:px-1.5 lg:text-[11px]",
           !readOnly && "hover:bg-accent",
-          selected && selectedArea === "whole" && "bg-primary text-primary-foreground",
+          selected && (selectedArea === "whole" || selectedAreas.includes("whole")) && "bg-primary text-primary-foreground",
         )}
         title={`Dente ${number} inteiro`}
         aria-label={`Selecionar dente ${number} inteiro`}
@@ -180,7 +182,7 @@ function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, 
   )
 }
 
-export function DentalChart({ selectedTooth, selectedArea, onAreaSelect, toothData, treatmentIndicators, multiSelectMode = false, selectedTeeth, onToggleToothSelection, dentition, readOnly = false }: DentalChartProps) {
+export function DentalChart({ selectedTooth, selectedArea, selectedAreas, onAreaSelect, toothData, treatmentIndicators, multiSelectMode = false, selectedTeeth, onToggleToothSelection, dentition, readOnly = false }: DentalChartProps) {
   const rows = dentition === "permanent"
     ? [[18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28], [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]]
     : [[55, 54, 53, 52, 51, 61, 62, 63, 64, 65], [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]]
@@ -210,6 +212,7 @@ export function DentalChart({ selectedTooth, selectedArea, onAreaSelect, toothDa
       indicators={treatmentIndicators?.[number]}
       selected={selectedTooth === number}
       selectedArea={selectedArea}
+      selectedAreas={selectedAreas}
       multiSelectMode={multiSelectMode}
       checked={selectedTeeth?.has(number) ?? false}
       upper={upper}
@@ -225,14 +228,14 @@ export function DentalChart({ selectedTooth, selectedArea, onAreaSelect, toothDa
         {mobileRows.map((row) => (
           <div key={row.label}>
             <p className="mb-1.5 text-center text-[10px] font-medium text-muted-foreground">{row.label}</p>
-            <div className="flex justify-center">
+            <div className="grid grid-cols-4 justify-items-center gap-y-2 min-[480px]:grid-cols-8">
               {row.numbers.map((number) => renderTooth(number, row.upper, true))}
             </div>
           </div>
         ))}
       </div>
 
-      <div className="hidden space-y-7 sm:block">
+      <div className="hidden space-y-7 overflow-x-auto sm:block">
         {rows.map((numbers, rowIndex) => (
           <div key={rowIndex} className={cn("mx-auto", dentition === "permanent" ? "min-w-[590px] lg:min-w-[920px]" : "min-w-[380px] lg:min-w-[590px]")}>
           <p className="mb-1 text-center text-[9px] font-medium text-muted-foreground sm:mb-2 sm:text-xs">{rowIndex === 0 ? "Arcada superior" : "Arcada inferior"}</p>

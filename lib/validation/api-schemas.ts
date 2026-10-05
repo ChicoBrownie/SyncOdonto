@@ -139,6 +139,11 @@ export const treatmentInputSchema = z.object({
   appointment_id: uuid.nullable().optional(),
   tooth_number: z.number().int().min(11).max(85).nullable().optional(),
   tooth_area: z.enum(["vestibular", "lingual", "mesial", "distal", "occlusal", "root", "whole"]).nullable().optional(),
+  tooth_areas: z.array(z.enum(["vestibular", "lingual", "mesial", "distal", "occlusal", "root", "whole"]))
+    .min(1).max(6)
+    .refine((areas) => new Set(areas).size === areas.length, "Não repita uma região.")
+    .refine((areas) => !areas.includes("whole") || areas.length === 1, "Dente inteiro não pode ser combinado com outras regiões.")
+    .optional(),
   problem: z.string().trim().min(1).max(500),
   treatment_type: z.string().trim().min(2).max(200),
   description: nullableText(2000),

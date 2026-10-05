@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
+import { useRouter } from "next/navigation"
 
 interface AnamnesisSectionProps {
   patientId: string
@@ -40,7 +41,7 @@ interface AnamnesisRecord {
   created_at: string
 }
 
-const QUESTION_GROUPS: { group: string; questions: string[] }[] = [
+export const QUESTION_GROUPS: { group: string; questions: string[] }[] = [
   {
     group: "Saúde Geral",
     questions: [
@@ -98,6 +99,7 @@ const fetcher = async (url: string) => {
 }
 
 export function AnamnesisSection({ patientId }: AnamnesisSectionProps) {
+  const router = useRouter()
   const { data, isLoading, mutate } = useSWR(`/api/anamnesis?patientId=${patientId}`, fetcher)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -114,13 +116,7 @@ export function AnamnesisSection({ patientId }: AnamnesisSectionProps) {
   const records: AnamnesisRecord[] = data?.data || []
 
   const openNewAnamnesis = () => {
-    setChiefComplaint("")
-    setDentistName("")
-    setAnswers(buildEmptyAnswers())
-    setAdditionalNotes("")
-    setDiagnosis("")
-    setTreatmentPlan("")
-    setIsDialogOpen(true)
+    router.push(`/atendimento?patientId=${patientId}&step=anamnesis`)
   }
 
   const setAnswer = (question: string, answer: "sim" | "nao") => {

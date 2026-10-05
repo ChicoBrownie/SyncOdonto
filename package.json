@@ -7,7 +7,8 @@
     "dev": "next dev",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --configLoader runner",
+    "test:mobile": "playwright test",
     "pilot:preflight": "node scripts/pilot-preflight.mjs",
     "pilot:smoke": "node scripts/pilot-smoke.mjs",
     "verify": "npm run lint -- --quiet && npm run typecheck && npm test",
@@ -75,7 +76,9 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@netlify/plugin-nextjs": "^5.15.12",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.1.9",
     "@types/node": "^22",
     "@types/react": "^19",

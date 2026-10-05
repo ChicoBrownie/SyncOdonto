@@ -64,6 +64,7 @@ Os scripts SQL estão em `scripts/` e devem ser aplicados em ordem numérica:
 8. `008_odontogram_workflow.sql`
 9. `009_odontogram_versions_by_appointment.sql`
 10. `010_procedure_catalog_defaults_and_status_colors.sql`
+11. `012_security_advisor_hardening.sql`
 
 O script pontual `011_reset_tiago_odontogram.sql` é exclusivo para limpar os dados de teste do paciente Thiago Assuncao, preservando o histórico de versões.
 

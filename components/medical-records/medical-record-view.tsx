@@ -209,6 +209,7 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
       </Dialog>
 
       {/* Cabeçalho clínico compacto */}
+      <Button asChild className="min-h-11"><Link href={`/atendimento?patientId=${patientId}${activeAppointment ? `&appointmentId=${activeAppointment.id}` : ""}`}>{activeAppointment ? "Continuar atendimento guiado" : "Iniciar atendimento deste paciente"}</Link></Button>
       <div className="flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-center sm:justify-between sm:pb-4">
         <div className="flex min-w-0 items-center gap-3">
           <Link href="/pacientes" className="hidden sm:block"><Button variant="ghost" size="icon" aria-label="Voltar para pacientes"><ArrowLeft className="h-5 w-5" /></Button></Link>

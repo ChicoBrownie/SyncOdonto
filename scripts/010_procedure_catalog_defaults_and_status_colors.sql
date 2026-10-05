@@ -48,7 +48,7 @@ CREATE TRIGGER procedure_catalog_favorite_limit
   BEFORE INSERT OR UPDATE OF is_favorite ON public.procedure_catalog
   FOR EACH ROW EXECUTE FUNCTION public.enforce_procedure_catalog_favorite_limit();
 
-REVOKE ALL ON FUNCTION public.enforce_procedure_catalog_favorite_limit() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.enforce_procedure_catalog_favorite_limit() FROM PUBLIC, anon, authenticated;
 
 COMMENT ON TABLE public.procedure_catalog IS
   'Catálogo por clínica. Até cinco procedimentos podem ser explicitamente marcados como opções rápidas.';

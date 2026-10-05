@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/lib/hooks/use-auth"
 import Link from "next/link"
+import { flushEncounterEdits } from "@/lib/encounters/client"
+import { toast } from "sonner"
 
 interface HeaderProps {
   onMenuClick: () => void
@@ -83,7 +85,7 @@ export function Header({ onMenuClick }: HeaderProps) {
                 <Link href="/configuracoes">Configurações</Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={signOut} className="text-red-600">
+              <DropdownMenuItem onClick={() => { void flushEncounterEdits().then(() => signOut()).catch(error => toast.error(error instanceof Error ? error.message : "Salve o atendimento antes de sair.")) }} className="text-red-600">
                 <LogOut className="mr-2 h-4 w-4" />
                 Sair
               </DropdownMenuItem>

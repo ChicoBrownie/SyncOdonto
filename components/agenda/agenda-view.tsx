@@ -215,8 +215,7 @@ export function AgendaView() {
 
   // Iniciar: atualiza status e redireciona para prontuário
   const handleIniciar = async (appointment: any) => {
-    await handleUpdateStatus(appointment.id, "Em Andamento")
-    router.push(`/prontuario/${appointment.patient_id}`)
+    router.push(`/atendimento?patientId=${appointment.patient_id}&appointmentId=${appointment.id}`)
   }
 
   // Cancelamento com modal
@@ -457,8 +456,8 @@ export function AgendaView() {
           <div className="flex items-center gap-2">
             <Badge className="bg-yellow-100 text-yellow-800 animate-pulse text-xs">Em atendimento</Badge>
             <Button size="sm" className="bg-success text-white hover:bg-success/90"
-              onClick={() => handleUpdateStatus(appointment.id, "Concluída")}>
-              Encerrar
+              onClick={() => router.push(`/prontuario/${appointment.patient_id}`)}>
+              Revisar e encerrar
             </Button>
           </div>
         )}
