@@ -1,0 +1,13 @@
+# Importação de dados de outra clínica
+
+O gestor acessa **Pacientes → Importar pacientes**. Envie uma planilha CSV em UTF-8 ou Excel `.xlsx` com pacientes. Para prontuários e exames, use abas chamadas `Prontuários` e `Exames` no mesmo Excel ou envie arquivos separados. Os modelos estão em `public/modelos-importacao/`.
+
+Cada prontuário ou exame precisa de `id paciente` (o ID da planilha de pacientes) ou `cpf paciente`. Não são criadas consultas, cobranças, odontogramas ou tratamentos a partir desses arquivos. O texto clínico entra em `medical_records`, e exames entram em `documents` com tipo `exam`. Arquivos de exames PDF, PNG ou JPG devem ser selecionados junto da planilha; a coluna `arquivo` precisa ter exatamente o mesmo nome. Se a linha não tiver arquivo, a descrição do exame é importada sem anexo. DICOM e links externos não são importados como arquivos nesta versão.
+
+O importador reconhece nomes comuns de colunas em português e inglês. Colunas adicionais são preservadas nas observações do paciente ou no texto do prontuário/exame. Valores de ID do sistema anterior também ficam no texto importado. Colunas equivalentes repetidas, referências a paciente ausente, nomes conflitantes para um CPF e arquivos faltando impedem a confirmação. A prévia lista os erros e quantos registros já existem.
+
+Cada envio tem limite de 4 MB e 1.000 linhas por aba, em respeito ao limite da função hospedada. Divida exportações maiores em lotes e mantenha **o mesmo nome do sistema de origem** em todos os lotes. A identificação estável de cada item evita duplicatas quando o mesmo lote é reenviado. Pacientes com o mesmo CPF e nome são reutilizados sem sobrescrever os dados atuais; prontuários e exames novos podem ser anexados a eles. Se uma falha ocorrer depois de parte do lote ter sido salva, a resposta informa as quantidades gravadas. Corrija a causa e reenvie o mesmo lote, com o mesmo nome de origem.
+
+As planilhas são processadas na solicitação e não são guardadas no servidor. Os arquivos de exames são gravados no bucket privado `documentos-clinica`; o acesso posterior usa o endpoint de URL temporária já existente. Somente o papel `gestor` pode iniciar a importação. A ação é registrada na auditoria, com contagens e nome da origem, sem conteúdo clínico.
+
+Não há migração SQL nova para este recurso. Antes do uso real, confirme que as tabelas `patients`, `medical_records` e `documents`, o bucket `documentos-clinica` e a função `consume_rate_limit` já estão configurados como nas outras áreas do sistema. Faça o primeiro teste com dados fictícios e confira a prévia, o cadastro, o prontuário e o anexo no ambiente de prévia do site.

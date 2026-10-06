@@ -5,6 +5,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Search, Filter } from "lucide-react"
+import Link from "next/link"
+import useSWR from "swr"
 import { PatientTable } from "./patient-table"
 import {
   DropdownMenu,
@@ -14,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function PatientList() {
+  const { data: access } = useSWR("/api/auth/check-access", (url: string) => fetch(url).then(response => response.json()))
   const [searchQuery, setSearchQuery] = useState("")
   const [activeTab, setActiveTab] = useState("all")
   const [filters, setFilters] = useState({
@@ -31,9 +34,9 @@ export function PatientList() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Lista de Pacientes</h1>
-        <p className="text-muted-foreground">Gerencia e acompanhe seus pacientes</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h1 className="text-3xl font-bold text-foreground">Lista de Pacientes</h1><p className="text-muted-foreground">Gerencia e acompanhe seus pacientes</p></div>
+        {access?.access_role === "gestor" && <Button variant="outline" asChild><Link href="/importacao">Importar pacientes</Link></Button>}
       </div>
 
       {/* Search and Filters */}
