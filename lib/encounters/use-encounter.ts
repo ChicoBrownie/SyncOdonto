@@ -55,11 +55,12 @@ export function useEncounter(id: string) {
         // A server-normalized response is saved, not another edit. Only replay
         // changes made by the user while this request was in flight.
         const editedWhileSaving = latest !== snapshot
-        current.current = editedWhileSaving ? { ...data, payload: latest.payload, step: latest.step } : data
-        setDraft(current.current)
-        setSaveState(fingerprint(current.current) === saved.current ? "saved" : "saving")
+        const accepted = editedWhileSaving ? { ...data, payload: latest.payload, step: latest.step } : data
+        current.current = accepted
+        setDraft(accepted)
+        setSaveState(fingerprint(accepted) === saved.current ? "saved" : "saving")
         setMessage(""); void mutate(resumeKey)
-        return current.current
+        return accepted
       } catch (error) {
         blocked.current = error instanceof EncounterError && error.conflict
         setSaveState(blocked.current ? "conflict" : "error")
