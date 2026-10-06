@@ -8,6 +8,9 @@
 .encounter-editor button { max-width: 100%; }
 main:has(.encounter-editor) { scroll-padding-bottom: 10rem; }
 @media (max-width: 639px) {
+  .app-shell[data-keyboard-open="true"] .clinical-mobile-nav,
+  .app-shell[data-keyboard-open="true"] .encounter-actions { display: none; }
+  .app-shell[data-keyboard-open="true"] main { scroll-padding-block: 1rem; }
   .app-shell[data-clinical="true"] button { min-height: 44px; }
   .app-shell[data-clinical="true"] input, .app-shell[data-clinical="true"] textarea, .app-shell[data-clinical="true"] select { min-height: 44px; font-size: 16px; }
 }

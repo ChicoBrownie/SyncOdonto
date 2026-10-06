@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Sidebar } from "./sidebar"
 import { Header } from "./header"
 import { usePathname, useRouter } from "next/navigation"
@@ -14,12 +14,48 @@ import { Toaster } from "@/components/ui/sonner"
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [swrConfig] = useState(() => ({ provider: () => new Map() }))
+  const [keyboardHeight, setKeyboardHeight] = useState<number | null>(null)
+  const normalViewportHeight = useRef(0)
   const router = useRouter()
   const pathname = usePathname()
   const area = pathname.startsWith("/prontuario") ? "records" : pathname === "/agenda" ? "agenda" : pathname === "/pacientes" ? "patients" : pathname === "/odontograma" || pathname === "/mapa-odontologico" ? "chart" : pathname === "/financeiro" ? "finance" : null
 
+  useEffect(() => {
+    const viewport = window.visualViewport
+    if (!viewport) return
+    const editableIsFocused = () => document.activeElement?.matches("textarea, input:not([type='checkbox']):not([type='radio']), [contenteditable='true']")
+    const measure = () => {
+      if (!normalViewportHeight.current) normalViewportHeight.current = viewport.height
+      const open = editableIsFocused() && normalViewportHeight.current - viewport.height > 140
+      setKeyboardHeight(open ? viewport.height : null)
+      if (!open && !editableIsFocused()) normalViewportHeight.current = Math.max(normalViewportHeight.current, viewport.height)
+    }
+    const resetOrientation = () => { normalViewportHeight.current = viewport.height; measure() }
+    viewport.addEventListener("resize", measure)
+    window.addEventListener("orientationchange", resetOrientation)
+    measure()
+    return () => { viewport.removeEventListener("resize", measure); window.removeEventListener("orientationchange", resetOrientation) }
+  }, [])
+
+  useEffect(() => {
+    if (keyboardHeight === null) return
+    const revealFocusedField = () => {
+      const field = document.activeElement as HTMLElement | null
+      const scrollArea = field?.closest("main")
+      if (!field || !scrollArea || !field.matches("textarea, input, [contenteditable='true']")) return
+      const fieldBox = field.getBoundingClientRect()
+      const areaBox = scrollArea.getBoundingClientRect()
+      if (fieldBox.top < areaBox.top + 12 || fieldBox.bottom > areaBox.bottom - 12) field.scrollIntoView({ block: "center", behavior: "smooth" })
+    }
+    const onFocus = () => { window.setTimeout(revealFocusedField, 80) }
+    const timer = window.setTimeout(revealFocusedField, 80)
+    document.addEventListener("focusin", onFocus)
+    return () => { window.clearTimeout(timer); document.removeEventListener("focusin", onFocus) }
+  }, [keyboardHeight])
+
   return (
-    <SWRConfig value={{ provider: () => new Map() }}><div data-clinical={Boolean(area || pathname.startsWith("/atendimento"))} className="app-shell flex h-dvh overflow-hidden bg-background" onClickCapture={event => {
+    <SWRConfig value={swrConfig}><div data-clinical={Boolean(area || pathname.startsWith("/atendimento"))} data-keyboard-open={keyboardHeight !== null} style={keyboardHeight === null ? undefined : { height: keyboardHeight }} className="app-shell flex h-dvh overflow-hidden bg-background" onClickCapture={event => {
       const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[href]")
       if (!anchor || anchor.target === "_blank" || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
       const url = new URL(anchor.href, window.location.href)

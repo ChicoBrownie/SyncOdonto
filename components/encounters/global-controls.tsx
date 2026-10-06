@@ -12,13 +12,15 @@ import { stepLabels, type EncounterStep } from "@/lib/encounters/model"
 type Summary = { id: string; step: EncounterStep; updated_at: string; patient: { full_name: string } | null }
 export function EncounterGlobalControls() {
   const pathname = usePathname()
+  const inEditor = /^\/atendimento\/[^/]+/.test(pathname)
   const [offset, setOffset] = useState(0)
-  const { data, error, isLoading } = useSWR(offset ? `${resumeKey}?offset=${offset}` : resumeKey, encounterRequest, { refreshInterval: 15_000, revalidateOnFocus: true })
+  const { data, error, isLoading } = useSWR(inEditor ? null : offset ? `${resumeKey}?offset=${offset}` : resumeKey, encounterRequest, { refreshInterval: 15_000, revalidateOnFocus: true })
   const [dismissed, setDismissed] = useState(false)
   const [open, setOpen] = useState(false)
   const drafts: Summary[] = data?.data || []
   const count = data?.count ?? drafts.length
   const onEncounter = pathname.startsWith("/atendimento")
+  if (inEditor) return null
   return <>
     <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-card px-4 py-2 lg:px-6" data-guide="encounter-entry">
       <Button asChild className="min-h-11"><Link href="/atendimento"><Play className="mr-2 h-4 w-4" />Iniciar atendimento</Link></Button>

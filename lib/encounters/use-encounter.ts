@@ -5,12 +5,21 @@ import { EncounterError, encounterRequest, registerSaver, resumeKey } from "./cl
 import type { EncounterDraft, EncounterPayload, EncounterStep } from "./model"
 
 type SaveState = "loading" | "saving" | "saved" | "error" | "conflict"
-const fingerprint = (value: EncounterDraft) => JSON.stringify([value.payload, value.step])
+const canonical = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value && typeof value === "object") return Object.fromEntries(
+    Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, canonical(item)])
+  )
+  return value
+}
+// PostgreSQL JSONB can reorder object keys. Their order is not a clinical edit.
+const fingerprint = (value: EncounterDraft) => JSON.stringify([canonical(value.payload), value.step])
 export function useEncounter(id: string) {
   const { mutate } = useSWRConfig()
   const [draft, setDraft] = useState<EncounterDraft | null>(null)
   const [saveState, setSaveState] = useState<SaveState>("loading")
   const [message, setMessage] = useState("")
+  const [actionMessage, setActionMessage] = useState("")
   const [busy, setBusy] = useState(false)
   const current = useRef<EncounterDraft | null>(null)
   const saved = useRef("")
@@ -25,7 +34,7 @@ export function useEncounter(id: string) {
     try {
       const { data } = await encounterRequest(`/api/encounters/${id}`)
       current.current = data; saved.current = fingerprint(data); blocked.current = false
-      setDraft(data); setSaveState("saved"); setMessage("")
+      setDraft(data); setSaveState("saved"); setMessage(""); setActionMessage("")
     } catch (error) { setSaveState("error"); setMessage(error instanceof Error ? error.message : "Não foi possível carregar.") }
   }, [id])
   useEffect(() => { void load() }, [load])
@@ -43,10 +52,12 @@ export function useEncounter(id: string) {
         const { data } = await encounterRequest(`/api/encounters/${id}`, { method: "PATCH", keepalive: new TextEncoder().encode(body).length < 60_000, body })
         saved.current = fingerprint(data)
         const latest = current.current!
-        // Preserve keystrokes made while the request was in flight.
-        current.current = { ...data, payload: latest.payload, step: latest.step }
+        // A server-normalized response is saved, not another edit. Only replay
+        // changes made by the user while this request was in flight.
+        const editedWhileSaving = latest !== snapshot
+        current.current = editedWhileSaving ? { ...data, payload: latest.payload, step: latest.step } : data
         setDraft(current.current)
-        setSaveState(fingerprint(current.current!) === saved.current ? "saved" : "saving")
+        setSaveState(fingerprint(current.current) === saved.current ? "saved" : "saving")
         setMessage(""); void mutate(resumeKey)
         return current.current
       } catch (error) {
@@ -63,7 +74,9 @@ export function useEncounter(id: string) {
 
   const update = useCallback((change: (payload: EncounterPayload) => EncounterPayload) => {
     if (!current.current || current.current.status !== "active" || blocked.current || acting.current) return
-    current.current = { ...current.current, payload: change(current.current.payload) }
+    const next = { ...current.current, payload: change(current.current.payload) }
+    if (fingerprint(next) === fingerprint(current.current)) return
+    current.current = next
     setDraft(current.current); setSaveState("saving")
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => { void flush().catch(() => undefined) }, 500)
@@ -78,17 +91,19 @@ export function useEncounter(id: string) {
 
   const action = useCallback(async (actionName: string, input: Record<string, unknown> = {}) => {
     if (acting.current) return null
-    acting.current = true; setBusy(true)
+    acting.current = true; setBusy(true); setActionMessage("")
+    let performingAction = false
     try {
       const latest = await flush()
       if (!latest) throw new Error("Aguarde o atendimento carregar.")
+      performingAction = true
       const { data } = await encounterRequest(`/api/encounters/${id}/actions`, { method: "POST", body: JSON.stringify({ revision: latest.revision, action: actionName, ...input }) })
       current.current = data; saved.current = fingerprint(data)
       setDraft(data); setSaveState("saved"); setMessage(""); void mutate(resumeKey)
       return data as EncounterDraft
     } catch (error) {
-      if (error instanceof EncounterError && error.conflict) { blocked.current = true; setSaveState("conflict") }
-      setMessage(error instanceof Error ? error.message : "Não foi possível concluir.")
+      if (error instanceof EncounterError && error.conflict) { blocked.current = true; setSaveState("conflict"); setMessage(error.message) }
+      else if (performingAction) setActionMessage(error instanceof Error ? error.message : "Não foi possível concluir.")
       throw error
     } finally { acting.current = false; setBusy(false) }
   }, [flush, id, mutate])
@@ -110,5 +125,5 @@ export function useEncounter(id: string) {
       void flush().catch(() => undefined)
     }
   }, [flush])
-  return { draft, saveState, message, busy, update, go, flush, action, reload: load }
+  return { draft, saveState, message, actionMessage, busy, update, go, flush, action, reload: load }
 }

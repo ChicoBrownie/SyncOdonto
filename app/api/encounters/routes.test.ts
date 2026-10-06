@@ -72,6 +72,13 @@ describe("APIs de rascunho autenticadas e isoladas", () => {
     expect((await action(request({ action: "complete", revision: 7 }), params)).status).toBe(400)
     expect(rpc).not.toHaveBeenCalled()
   })
+  it("identifica a falha de início da consulta sem expor detalhes internos do banco", async () => {
+    const { rpc } = client()
+    rpc.mockResolvedValue({ data: null, error: { code: "42804", message: "column time has incompatible type; internal detail" } })
+    const response = await action(request({ action: "start", revision: 7 }), params)
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: "Não foi possível iniciar a consulta. Tente novamente.", conflict: false })
+  })
   it("retorna a mesma assinatura e conclusão após resposta perdida", async () => {
     const { rpc } = client({ ...draft, signed_document_id: "77777777-7777-4777-8777-777777777777", status: "completed" })
     expect((await action(request({ action: "sign", revision: 2, confirmed: true }), params)).status).toBe(200)

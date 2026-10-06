@@ -1,116 +1,7 @@
--- Atendimento móvel. Aplicar manualmente em ambiente fictício após backup.
--- Requer o esquema OPERACIONAL usado pelas APIs (não apenas o bootstrap 001).
+-- Correção para bancos que já receberam a migração 014.
+-- Converte explicitamente o horário da consulta de JSON/texto para TIME.
+-- Substitui apenas a função; preserva tabelas, rascunhos e registros existentes.
 BEGIN;
-DO $$
-BEGIN
-  IF to_regclass('public.anamnesis_records') IS NULL
-     OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='patients' AND column_name='date_of_birth')
-     OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='date')
-     OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='financial_transactions' AND column_name='type') THEN
-    RAISE EXCEPTION '014 requer o esquema operacional documentado em docs/MOBILE_ATTENDANCE.md. Não aplicar sobre 001 isoladamente.';
-  END IF;
-END $$;
-
-CREATE TABLE public.encounter_drafts (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  clinic_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  actor_user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  patient_id uuid REFERENCES public.patients(id) ON DELETE CASCADE,
-  appointment_id uuid REFERENCES public.appointments(id),
-  step text NOT NULL DEFAULT 'patient' CHECK (step IN ('patient','anamnesis','chart','budget','signature','financial')),
-  payload jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(payload)='object'),
-  revision integer NOT NULL DEFAULT 0 CHECK (revision >= 0),
-  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','completed','discarded')),
-  signed_document_id uuid REFERENCES public.documents(id),
-  anamnesis_id uuid REFERENCES public.anamnesis_records(id),
-  medical_record_id uuid REFERENCES public.medical_records(id),
-  clinical_revision integer,
-  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
-);
-ALTER TABLE public.encounter_drafts ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.encounter_drafts FROM anon, authenticated;
-GRANT ALL ON public.encounter_drafts TO service_role;
-CREATE INDEX encounter_drafts_resume_idx ON public.encounter_drafts(clinic_id, actor_user_id, updated_at DESC) WHERE status='active';
-CREATE UNIQUE INDEX encounter_one_active_patient_idx ON public.encounter_drafts(clinic_id, actor_user_id, patient_id) WHERE status='active' AND patient_id IS NOT NULL;
-
-CREATE TABLE public.encounter_guide_visits (
-  clinic_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  actor_user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  area text NOT NULL CHECK (length(area) BETWEEN 1 AND 80),
-  visited_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (clinic_id, actor_user_id, area)
-);
-ALTER TABLE public.encounter_guide_visits ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.encounter_guide_visits FROM anon, authenticated;
-GRANT ALL ON public.encounter_guide_visits TO service_role;
-
-ALTER TABLE public.documents ADD COLUMN encounter_id uuid REFERENCES public.encounter_drafts(id),
-  ADD COLUMN encounter_revision integer, ADD COLUMN snapshot_hash text;
-CREATE UNIQUE INDEX encounter_document_once_idx ON public.documents(encounter_id) WHERE encounter_id IS NOT NULL;
-ALTER TABLE public.financial_transactions ADD COLUMN IF NOT EXISTS source_appointment_id uuid REFERENCES public.appointments(id);
--- Abort on historical duplicates; never delete or merge real financial records automatically.
-CREATE UNIQUE INDEX IF NOT EXISTS financial_source_appointment_once_idx ON public.financial_transactions(user_id, source_appointment_id) WHERE source_appointment_id IS NOT NULL;
-
-CREATE OR REPLACE FUNCTION public.guard_encounter_document() RETURNS trigger
-LANGUAGE plpgsql SET search_path=public AS $$
-BEGIN
-  IF TG_OP='DELETE' AND OLD.encounter_id IS NOT NULL AND OLD.signed THEN
-    RAISE EXCEPTION 'Documento assinado do atendimento deve ser preservado.';
-  END IF;
-  IF TG_OP='UPDATE' AND OLD.encounter_id IS NOT NULL AND OLD.signed AND NEW IS DISTINCT FROM OLD THEN
-    RAISE EXCEPTION 'Esta versão assinada é imutável. Crie outro atendimento para uma nova proposta.';
-  END IF;
-  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER immutable_encounter_document BEFORE UPDATE OR DELETE ON public.documents FOR EACH ROW EXECUTE FUNCTION public.guard_encounter_document();
-
-CREATE OR REPLACE FUNCTION public.save_encounter_draft(p_id uuid,p_clinic uuid,p_actor uuid,p_revision integer,p_step text,p_payload jsonb)
-RETURNS public.encounter_drafts LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE d public.encounter_drafts;
-BEGIN
-  SELECT * INTO d FROM public.encounter_drafts WHERE id=p_id AND clinic_id=p_clinic AND actor_user_id=p_actor FOR UPDATE;
-  IF NOT FOUND THEN RETURN NULL; END IF;
-  IF d.status<>'active' OR d.revision<>p_revision THEN RAISE EXCEPTION USING ERRCODE='40001', MESSAGE='Este atendimento mudou em outra aba ou foi encerrado. Recarregue a versão salva antes de continuar.'; END IF;
-  IF d.signed_document_id IS NOT NULL AND p_payload->'budget' IS DISTINCT FROM d.payload->'budget' THEN
-    RAISE EXCEPTION 'O orçamento assinado não pode ser alterado.';
-  END IF;
-  UPDATE public.encounter_drafts SET payload=p_payload,step=p_step,revision=revision+1,updated_at=now() WHERE id=p_id RETURNING * INTO d;
-  RETURN d;
-END $$;
-
--- All appointment writers share this lock, including legacy APIs. This closes
--- the race between the existing read-before-insert check and a concurrent insert.
-CREATE OR REPLACE FUNCTION public.guard_appointment_slot() RETURNS trigger
-LANGUAGE plpgsql SET search_path=public AS $$
-BEGIN
-  PERFORM pg_advisory_xact_lock(hashtextextended('appointment:'||NEW.user_id::text,0));
-  IF TG_OP='UPDATE' AND OLD.status='Concluída' AND (NEW.cost IS DISTINCT FROM OLD.cost OR NEW.patient_id IS DISTINCT FROM OLD.patient_id OR NEW.status IS DISTINCT FROM OLD.status) THEN
-    RAISE EXCEPTION 'Consulta já concluída. Preserve o vínculo e confira qualquer correção de cobrança no financeiro.';
-  END IF;
-  IF NEW.status NOT IN ('Cancelada','Concluída','Falta') AND EXISTS (
-    SELECT 1 FROM public.appointments a WHERE a.user_id=NEW.user_id AND a.id<>NEW.id AND a.date=NEW.date
-      AND a.status NOT IN ('Cancelada','Concluída','Falta')
-      AND (a.patient_id=NEW.patient_id OR lower(trim(a.doctor_name))=lower(trim(NEW.doctor_name)))
-      AND (extract(epoch FROM a.time::time)/60) < (extract(epoch FROM NEW.time::time)/60)+coalesce(NEW.duration_minutes,60)
-      AND (extract(epoch FROM NEW.time::time)/60) < (extract(epoch FROM a.time::time)/60)+coalesce(a.duration_minutes,60)
-  ) THEN RAISE EXCEPTION 'Conflito de horário do paciente ou profissional. Escolha a consulta já agendada ou outro horário.'; END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER appointment_slot_guard BEFORE INSERT OR UPDATE OF date,time,doctor_name,patient_id,duration_minutes,status,cost ON public.appointments FOR EACH ROW EXECUTE FUNCTION public.guard_appointment_slot();
-
-CREATE OR REPLACE FUNCTION public.create_appointment_financial_pending() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-BEGIN
-  IF NEW.status='Concluída' AND OLD.status IS DISTINCT FROM 'Concluída' THEN
-    IF OLD.status<>'Em Andamento' THEN RAISE EXCEPTION 'Somente uma consulta em andamento pode ser encerrada.'; END IF;
-    IF NEW.cost IS NULL OR NEW.cost<=0 THEN RAISE EXCEPTION 'Confirme um valor positivo da consulta antes de encaminhar ao financeiro.'; END IF;
-    INSERT INTO public.financial_transactions(user_id,patient_id,description,amount,payment_method,type,status,verification_status,source_appointment_id)
-    VALUES(NEW.user_id,NEW.patient_id,'Consulta - '||coalesce(NEW.procedure_type,'Consulta'),NEW.cost,NULL,'income','pending','pending_verification',NEW.id)
-    ON CONFLICT (user_id,source_appointment_id) WHERE source_appointment_id IS NOT NULL DO NOTHING;
-  END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER appointment_financial_pending AFTER UPDATE OF status ON public.appointments FOR EACH ROW EXECUTE FUNCTION public.create_appointment_financial_pending();
 
 CREATE OR REPLACE FUNCTION public.perform_encounter_action(p_id uuid,p_clinic uuid,p_actor uuid,p_revision integer,p_action text,p_input jsonb DEFAULT '{}'::jsonb)
 RETURNS public.encounter_drafts LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
@@ -211,6 +102,6 @@ BEGIN
   RETURN d;
 END $$;
 
-REVOKE ALL ON FUNCTION public.save_encounter_draft(uuid,uuid,uuid,integer,text,jsonb),public.perform_encounter_action(uuid,uuid,uuid,integer,text,jsonb),public.guard_appointment_slot(),public.create_appointment_financial_pending(),public.guard_encounter_document() FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.save_encounter_draft(uuid,uuid,uuid,integer,text,jsonb),public.perform_encounter_action(uuid,uuid,uuid,integer,text,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.perform_encounter_action(uuid,uuid,uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.perform_encounter_action(uuid,uuid,uuid,integer,text,jsonb) TO service_role;
 COMMIT;

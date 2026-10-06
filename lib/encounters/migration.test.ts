@@ -56,6 +56,20 @@ describe.sequential("migração executada em PostgreSQL descartável", () => {
     await expect(db.query("select perform_encounter_action($1,$2,$3,1,'discard')", [draftId, clinic, actor])).rejects.toThrow(/permission denied/)
     await db.query("reset role")
   })
+  it("corrige uma instalação antiga com horário TIME sem perder rascunhos e permite reaplicar 015", async () => {
+    const upgrade = readFileSync("scripts/015_encounter_appointment_time.sql", "utf8")
+    // Reproduce the original 014 function against the actual operational column type.
+    await db.exec(upgrade.replace("::date,(d.payload->'appointment'->>'time')::time,", "::date,d.payload->'appointment'->>'time',"))
+    await expect(act("start")).rejects.toMatchObject({ code: "42804" })
+    expect((await db.query("select id from appointments")).rows).toHaveLength(0)
+    const before = (await db.query("select * from encounter_drafts where id=$1", [draftId])).rows
+    await db.exec(upgrade)
+    await db.exec(upgrade)
+    expect((await db.query("select * from encounter_drafts where id=$1", [draftId])).rows).toEqual(before)
+    const started = await act("start")
+    const appointment = await db.query<{ time: string; status: string }>("select time,status from appointments where id=$1", [started.appointment_id])
+    expect(appointment.rows[0]).toEqual({ time: "09:00:00", status: "Em Andamento" })
+  })
   it("reaproveita a consulta, impede horário conflitante e duplo início", async () => {
     const first = await act("start")
     const retry = await act("start")
@@ -138,5 +152,18 @@ describe.sequential("migração executada em PostgreSQL descartável", () => {
     const retry = await db.query<{ d: { patient_id: string } }>("select to_jsonb(perform_encounter_action($1,$2,$3,1,'register')) d", [registrationId, clinic, actor])
     expect(retry.rows[0].d.patient_id).toBe(first.rows[0].d.patient_id)
     expect((await db.query("select * from patients where cpf='000.000.000-00'")).rows).toHaveLength(1)
+  })
+  it("agenda horário TIME e preserva a mesma consulta ao repetir a confirmação", async () => {
+    const scheduledPatient = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    const scheduledDraft = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    const copy = { ...payload, scheduling: true, appointment: { ...payload.appointment, time: "15:30" } }
+    await db.query("insert into patients(id,user_id,full_name) values($1,$2,'Paciente Fictício de Agenda')", [scheduledPatient, clinic])
+    await db.query("insert into encounter_drafts(id,clinic_id,actor_user_id,patient_id,payload) values($1,$2,$3,$4,$5::jsonb)", [scheduledDraft, clinic, actor, scheduledPatient, JSON.stringify(copy)])
+    const call = () => db.query<{ d: { appointment_id: string } }>("select to_jsonb(perform_encounter_action($1,$2,$3,0,'schedule')) d", [scheduledDraft, clinic, actor])
+    const first = await call()
+    const retry = await call()
+    expect(retry.rows[0].d.appointment_id).toBe(first.rows[0].d.appointment_id)
+    const appointment = await db.query<{ time: string; status: string }>("select time,status from appointments where id=$1", [first.rows[0].d.appointment_id])
+    expect(appointment.rows).toEqual([{ time: "15:30:00", status: "Pendente" }])
   })
 })

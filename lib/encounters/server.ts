@@ -16,8 +16,8 @@ export async function readJson(request: Request) {
 export function apiError(error: unknown) {
   return NextResponse.json({ error: error instanceof z.ZodError ? "Dados inválidos: " + error.issues.map(i => i.path.join(".") + ": " + i.message).join("; ") : error instanceof Error ? error.message : "Não foi possível concluir." }, { status: 400 })
 }
-export function databaseError(error: { code?: string; message: string }) {
+export function databaseError(error: { code?: string; message: string }, fallback = "Não foi possível salvar no servidor. Tente novamente.") {
   const conflict = ["40001", "23505", "P0001"].includes(error.code || "")
   const missing = ["42P01", "42703", "PGRST202", "PGRST205"].includes(error.code || "")
-  return NextResponse.json({ error: missing ? "O atendimento precisa da migração 014 e do esquema operacional. Solicite a atualização ao responsável pela clínica." : conflict ? error.message : "Não foi possível salvar no servidor. Tente novamente.", conflict: error.code === "40001" }, { status: missing ? 503 : conflict ? 409 : 500 })
+  return NextResponse.json({ error: missing ? "O atendimento precisa da migração 014 e do esquema operacional. Solicite a atualização ao responsável pela clínica." : conflict ? error.message : fallback, conflict: error.code === "40001" }, { status: missing ? 503 : conflict ? 409 : 500 })
 }

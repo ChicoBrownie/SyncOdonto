@@ -6,7 +6,7 @@ Entrada em `/atendimento`, com busca de paciente ou cadastro rápido. O cadastro
 
 Após identificar o paciente, é possível atender agora, reservar um horário ou preparar a ficha. Consultas da agenda são reaproveitadas e conflitos por paciente/profissional são verificados também no banco, incluindo requisições simultâneas. “Atender agora” usa a data e hora de Fortaleza para uma nova consulta; a escolha de agendamento e os campos do horário permanecem no rascunho.
 
-O percurso inclui saúde e alertas, odontograma, orçamento, proposta assinada e financeiro. O seletor de etapa permite acesso direto e as etapas clínicas podem ficar para depois. Exames abrem em um painel sobre o atendimento sem mudar sua etapa. Uma ação principal e até duas alternativas aparecem na barra inferior; os controles de edição permanecem na etapa correspondente.
+O percurso inclui saúde e alertas, odontograma, orçamento, proposta assinada e financeiro. O seletor de etapa permite acesso direto e as etapas clínicas podem ficar para depois. Exames abrem em um painel sobre o atendimento sem mudar sua etapa. Uma ação principal aparece na barra inferior, com alternativas contextuais apenas quando úteis; os controles de edição permanecem na etapa correspondente. Na anamnese, cinco perguntas iniciais aparecem antes dos grupos completos, que ficam recolhidos até serem abertos. Elas incluem alergias, medicações, acompanhamento médico, sangramentos e reação à anestesia; não substituem a revisão clínica integral.
 
 O orçamento importa os procedimentos desta consulta e planos ainda sem consulta, preservando dentes, regiões e valores revisados. Uma nova importação não duplica fontes nem substitui os valores ajustados. A proposta precisa ser revisada e a consulta iniciada antes da assinatura. O documento armazena texto completo, itens, total, assinatura desenhada, instante, revisão do rascunho e SHA-256 do conteúdo/versionamento. A versão assinada é imutável. Não há certificação digital ou alegação de validação jurídica adicional.
 
@@ -17,6 +17,8 @@ Procedimentos importados ainda sem consulta são vinculados à consulta ao assin
 - `encounter_drafts` contém cadastro incompleto, anamnese (inclusive perguntas ainda não respondidas), notas, planejamento, formulário de procedimento, orçamento, opção/horário de agenda e última etapa.
 - O salvamento acontece após 500 ms sem edição, ao trocar de etapa e antes de navegar ou sair da conta. Há uma fila para preservar digitação ocorrida durante uma requisição. A mudança de visibilidade é apenas uma proteção adicional.
 - “Rascunho salvo” só aparece depois da confirmação do servidor. Falhas de conexão mantêm a edição em memória e exibem erro; retorno da conexão e o botão de tentar novamente permitem repetir o salvamento.
+- A comparação do rascunho ignora a ordem das chaves devolvidas pelo JSONB do PostgreSQL. Uma resposta com os mesmos dados não dispara outro PATCH; assim, confirmar o prontuário não fica aguardando um ciclo interminável de salvamentos.
+- Falhas de ações confirmadas (iniciar, agendar, assinar, concluir) têm mensagens próprias, independentes do salvamento do rascunho. “Rascunho salvo” pode aparecer junto de “Não foi possível iniciar a consulta”: o rascunho existe, mas o início não foi confirmado. Uma edição com autosave não apaga o erro da ação; repetir a ação permite tentar novamente.
 - Atualizações usam revisão esperada e bloqueio de linha. Uma aba antiga recebe 409 e não sobrescreve dados. Carregar a versão do servidor exige confirmar a substituição das edições locais.
 - Não são usados localStorage, sessionStorage, IndexedDB ou cache de service worker para dados clínicos. O cache de leitura é restrito à instância do layout, evitando mostrar o cache de uma sessão anterior ao entrar novamente.
 - APIs derivam clínica e usuário da sessão, verificam paciente/consulta e filtram cada leitura. Os rascunhos são pessoais: outro funcionário da mesma clínica não recebe acesso a eles. O prontuário e os documentos já confirmados continuam compartilhados conforme o padrão existente da clínica.
@@ -26,6 +28,17 @@ Procedimentos importados ainda sem consulta são vinculados à consulta ao assin
 ## Migração e aplicação manual
 
 Arquivo: `scripts/014_mobile_encounters.sql`, depois das migrações existentes até 013. **Nada foi aplicado a um serviço externo.**
+
+### Correção de horário para instalações que já receberam 014
+
+`scripts/015_encounter_appointment_time.sql` substitui somente a função `perform_encounter_action`, convertendo explicitamente o horário vindo do JSON para `TIME`. A primeira versão de 014 enviava esse valor como texto, o que impedia criar a consulta quando `appointments.time` era `time without time zone`. O tipo foi confirmado por consulta apenas à estrutura do Supabase; nenhum registro de paciente foi lido ou alterado. A falha foi reproduzida e a correção verificada no PostgreSQL descartável.
+
+- Se 014 já foi aplicada, executar somente **015** no SQL Editor do Supabase. Não reaplicar 014: ela cria tabelas e índices que já existem.
+- Em uma instalação nova, a 014 deste workspace já contém a conversão correta; 015 pode ser aplicada em seguida para manter a sequência de migrações.
+- A 015 preserva rascunhos, consultas, documentos, registros clínicos e cobranças; não recria tabelas e pode ser reaplicada. Ela mantém os privilégios restritos a `service_role`.
+- Depois de aplicar, retomar o rascunho existente e tocar em “Atender agora”. Testar também “Agendar horário” com dados fictícios. Não é necessário descartar o rascunho ou cadastrar o paciente novamente.
+
+### Estruturas e cuidados da instalação inicial
 
 A migração cria `encounter_drafts`, `encounter_guide_visits`, funções de salvamento/ações e índices de revisão/retomada; adiciona referências de versão/hash aos documentos e a unicidade da cobrança por consulta. Instala proteção de horários, documento assinado imutável e criação financeira transacional. RLS permanece ativada e tabelas/funções novas não são acessíveis por anon/authenticated; somente as APIs autenticadas utilizam service_role.
 
@@ -47,14 +60,14 @@ Antes de aplicar em um ambiente fictício:
 
 O botão Ajuda reabre guias contextuais. A primeira visita de cada área é registrada por clínica/usuário no servidor. O restante da tela fica escuro e a função em foco permanece visível. O guia acompanha rolagem/viewport, possui foco contido, descrição para leitores de tela, Escape e opção de pular. As áreas centrais existentes também recebem ajuda, sem redesenhar relatórios, paperless, administração ou configurações.
 
-A navegação inferior traz agenda, atendimento e pacientes. Ações de toque e campos nas áreas clínicas são maiores em telas pequenas, sem zoom automático dos campos no iOS; o layout usa altura dinâmica e bordas seguras. O manifesto permite adicionar à tela inicial nos navegadores compatíveis. Não há funcionamento clínico offline nem cache clínico persistente.
+A navegação inferior traz agenda, atendimento e pacientes. Dentro do atendimento, os controles globais Iniciar/Retomar cedem espaço ao conteúdo e ficam disponíveis nas demais telas. Quando o teclado móvel abre, a navegação inferior e a barra de ações se recolhem, a área usa a altura visível e o campo focado rola para a região livre. As ações retornam ao fechar o teclado. Ações de toque e campos nas áreas clínicas são maiores em telas pequenas, sem zoom automático dos campos no iOS; o layout usa altura dinâmica e bordas seguras. O manifesto permite adicionar à tela inicial nos navegadores compatíveis. Não há funcionamento clínico offline nem cache clínico persistente.
 
 ## Verificações automatizadas
 
 - `npm run verify`: lint sem erros, tipos e Vitest.
 - `npm run build`: build de produção.
 - `npm run test:mobile`: Playwright com Chrome instalado. O servidor de teste usa um Supabase fictício em loopback, cookies sintéticos e respostas de API controladas. Não usa o Supabase da clínica nem dados reais.
-- Testes PostgreSQL via PGlite executam a migração sobre um esquema operacional mínimo e descartável: retomada/revisão, acesso de outra clínica/usuário, privilégios, agenda, publicação clínica, assinatura imutável, retries, pendência única, rollback financeiro e importação de planos já cobrados.
+- Testes PostgreSQL via PGlite executam as migrações sobre um esquema operacional mínimo e descartável, com `appointments.time` do tipo `TIME`: retomada/revisão, acesso de outra clínica/usuário, privilégios, início e agendamento, atualização de 014 antiga para 015 sem perda de rascunhos, publicação clínica, assinatura imutável, retries, pendência única, rollback financeiro e importação de planos já cobrados.
 - Testes de rotas verificam autenticação, clínica/usuário derivados da sessão, rejeição de campos de escopo, conflitos e confirmação de assinatura/financeiro.
 - Testes no navegador verificam anamnese/orçamento após navegação e atualização, aviso dispensável, ausência de dados clínicos no armazenamento persistente, erro de rede/conflito, toque duplo, confirmação financeira, guia/Escape, exames sem perder etapa e larguras 320/390/768.
 

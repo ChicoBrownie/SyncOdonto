@@ -14,6 +14,17 @@ const actionSchema = z.object({
   confirmed: z.boolean().optional(),
 }).strict()
 
+const actionFailure: Record<z.infer<typeof actionSchema>["action"], string> = {
+  choose_patient: "Não foi possível vincular o paciente. Tente novamente.",
+  register: "Não foi possível cadastrar o paciente. Tente novamente.",
+  start: "Não foi possível iniciar a consulta. Tente novamente.",
+  schedule: "Não foi possível agendar a consulta. Tente novamente.",
+  publish: "Não foi possível registrar a ficha clínica. Tente novamente.",
+  sign: "Não foi possível confirmar a assinatura. Tente novamente.",
+  complete: "Não foi possível concluir a consulta. Tente novamente.",
+  discard: "Não foi possível descartar o rascunho. Tente novamente.",
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const context = await encounterContext()
   if (context.error) return context.error
@@ -53,7 +64,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
     if (body.action === "complete" && payload.settlement_amount <= 0) throw new Error("Confirme um valor positivo da consulta.")
     const { data, error: actionError } = await supabase.rpc("perform_encounter_action", { p_id: id, p_clinic: ownerId, p_actor: user.id, p_revision: body.revision, p_action: body.action, p_input: input })
-    if (actionError) return databaseError(actionError)
+    if (actionError) {
+      // Record only the action and SQLSTATE; Supabase error details may contain patient data.
+      console.error("[encounters] action failed", {
+        action: body.action,
+        code: /^[A-Z0-9]{5}$/.test(actionError.code || "") ? actionError.code : "unknown",
+      })
+      return databaseError(actionError, actionFailure[body.action])
+    }
     if (!data) return NextResponse.json({ error: "Atendimento indisponível." }, { status: 404 })
     await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: `encounter.${body.action}`, entityType: "encounter_drafts", entityId: id, metadata: { revision: data.revision, patient_id: data.patient_id, document_id: data.signed_document_id } })
     return NextResponse.json({ data })
