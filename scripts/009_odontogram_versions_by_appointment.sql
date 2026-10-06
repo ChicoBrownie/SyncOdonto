@@ -139,8 +139,8 @@ CREATE TRIGGER dental_chart_version_on_appointment_close
   AFTER UPDATE OF status ON public.appointments
   FOR EACH ROW EXECUTE FUNCTION public.capture_version_on_appointment_close();
 
-REVOKE ALL ON FUNCTION public.capture_dental_chart_version(UUID, UUID, TEXT, UUID, UUID) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.capture_version_on_appointment_close() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.capture_dental_chart_version(UUID, UUID, TEXT, UUID, UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.capture_version_on_appointment_close() FROM PUBLIC, anon, authenticated;
 
 COMMENT ON TABLE public.dental_chart_versions IS
   'Histórico imutável do odontograma: estado inicial e uma fotografia para cada atendimento concluído.';

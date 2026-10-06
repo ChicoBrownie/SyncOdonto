@@ -19,6 +19,11 @@ export default defineConfig([
   },
   globalIgnores([
     ".next/**",
+    ".mobile-test-build/**",
+    ".npm-cache/**",
+    ".test-browsers/**",
+    "test-results/**",
+    "playwright-report/**",
     "node_modules/**",
     "coverage/**",
     "next-env.d.ts",

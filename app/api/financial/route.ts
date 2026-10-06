@@ -30,6 +30,7 @@ export async function GET(request: Request) {
   const startDate = searchParams.get("startDate")
   const endDate = searchParams.get("endDate")
   const patientId = searchParams.get("patientId")
+  const sourceAppointmentId = searchParams.get("sourceAppointmentId")
   const verificationStatus = searchParams.get("verification_status")
 
   let query = supabase
@@ -48,6 +49,7 @@ export async function GET(request: Request) {
   }
   if (verificationStatus) query = query.eq("verification_status", verificationStatus)
   if (patientId) query = query.eq("patient_id", patientId)
+  if (sourceAppointmentId) query = query.eq("source_appointment_id", sourceAppointmentId)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

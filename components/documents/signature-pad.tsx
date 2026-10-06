@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, useEffect } from "react"
+import { useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Eraser } from "lucide-react"
 
@@ -10,8 +10,8 @@ interface SignaturePadProps {
 
 export function SignaturePad({ onChange }: SignaturePadProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [isDrawing, setIsDrawing] = useState(false)
-  const [hasSignature, setHasSignature] = useState(false)
+  const drawing = useRef(false)
+  const hasInk = useRef(false)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -23,41 +23,42 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
     ctx.strokeStyle = "#000000"
   }, [])
 
-  const getPos = (e: React.MouseEvent | React.TouchEvent) => {
+  const getPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current!
     const rect = canvas.getBoundingClientRect()
-    const point = "touches" in e ? e.touches[0] : e
     return {
-      x: (point.clientX - rect.left) * (canvas.width / rect.width),
-      y: (point.clientY - rect.top) * (canvas.height / rect.height),
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height),
     }
   }
 
-  const start = (e: React.MouseEvent | React.TouchEvent) => {
+  const start = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!e.isPrimary || (e.pointerType === "mouse" && e.button !== 0)) return
     e.preventDefault()
     const ctx = canvasRef.current?.getContext("2d")
     if (!ctx) return
     const { x, y } = getPos(e)
     ctx.beginPath()
     ctx.moveTo(x, y)
-    setIsDrawing(true)
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drawing.current = true
   }
 
-  const move = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDrawing) return
+  const move = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawing.current || !e.isPrimary) return
     e.preventDefault()
     const ctx = canvasRef.current?.getContext("2d")
     if (!ctx) return
     const { x, y } = getPos(e)
     ctx.lineTo(x, y)
     ctx.stroke()
-    if (!hasSignature) setHasSignature(true)
+    hasInk.current = true
   }
 
   const end = () => {
-    if (!isDrawing) return
-    setIsDrawing(false)
-    if (canvasRef.current) {
+    if (!drawing.current) return
+    drawing.current = false
+    if (canvasRef.current && hasInk.current) {
       onChange(canvasRef.current.toDataURL("image/png"))
     }
   }
@@ -67,7 +68,8 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
     const ctx = canvas?.getContext("2d")
     if (!canvas || !ctx) return
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    setHasSignature(false)
+    drawing.current = false
+    hasInk.current = false
     onChange(null)
   }
 
@@ -80,13 +82,12 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
           height={180}
           className="w-full touch-none rounded-lg"
           style={{ height: 180 }}
-          onMouseDown={start}
-          onMouseMove={move}
-          onMouseUp={end}
-          onMouseLeave={end}
-          onTouchStart={start}
-          onTouchMove={move}
-          onTouchEnd={end}
+          aria-label="Campo para desenhar a assinatura com o dedo, caneta ou mouse"
+          onPointerDown={start}
+          onPointerMove={move}
+          onPointerUp={end}
+          onPointerCancel={end}
+          onLostPointerCapture={end}
         />
       </div>
       <div className="flex items-center justify-between">

@@ -16,6 +16,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const path = document.storage_path || (document.file_url?.startsWith("http") ? null : document.file_url)
   if (!path) {
     if (document.file_url?.startsWith("http")) return NextResponse.json({ data: { url: document.file_url, title: document.title } })
+    const { data: encounterDocument } = await supabase.from("documents").select("id").eq("id", id).eq("user_id", ownerId).eq("signed", true).not("encounter_id", "is", null).maybeSingle()
+    if (encounterDocument) return NextResponse.json({ data: { url: `/api/documents/${id}/print`, title: document.title } })
     return NextResponse.json({ error: "Documento ainda não possui arquivo" }, { status: 404 })
   }
   const { data, error: signedError } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(path, SIGNED_URL_TTL_SECONDS)

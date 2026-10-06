@@ -211,6 +211,7 @@ export function useFinancialTransactions(options?: {
   startDate?: string
   endDate?: string
   patientId?: string
+  sourceAppointmentId?: string
 }) {
   const params = new URLSearchParams()
   if (options?.type) params.set("type", options.type)
@@ -218,6 +219,7 @@ export function useFinancialTransactions(options?: {
   if (options?.startDate) params.set("startDate", options.startDate)
   if (options?.endDate) params.set("endDate", options.endDate)
   if (options?.patientId) params.set("patientId", options.patientId)
+  if (options?.sourceAppointmentId) params.set("sourceAppointmentId", options.sourceAppointmentId)
   
   const { data, error, isLoading, mutate } = useSWR(
     `/api/financial?${params.toString()}`,

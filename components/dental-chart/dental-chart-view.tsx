@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import type { EncounterPayload } from "@/lib/encounters/model"
 import {
   Check, CheckCircle2, Clock3, History, Loader2,
   Pencil, Plus, Sparkles, Trash2, X,
@@ -38,6 +39,7 @@ type TreatmentItem = {
   id: string
   tooth_number: number | null
   tooth_area: ToothArea | null
+  tooth_areas?: ToothArea[] | null
   problem: string | null
   procedure_id: string | null
   appointment_id: string | null
@@ -65,6 +67,8 @@ interface DentalChartViewProps {
   appointmentId?: string | null
   professionalName?: string | null
   onTreatmentTotalChange?: (total: number) => void
+  encounterForm?: EncounterPayload["chart_form"]
+  onEncounterFormChange?: (form: EncounterPayload["chart_form"]) => void
 }
 
 const emptyTooth = (): ToothState => ({ surfaces: {} })
@@ -116,9 +120,16 @@ function suggestedProblem(name: string) {
   return "Avaliação odontológica"
 }
 
-export function DentalChartView({ patientId, appointmentId, professionalName, onTreatmentTotalChange }: DentalChartViewProps) {
-  const [selectedTooth, setSelectedTooth] = useState<number | null>(null)
-  const [selectedArea, setSelectedArea] = useState<ToothArea | null>(null)
+function treatmentAreas(item: Pick<TreatmentItem, "tooth_area" | "tooth_areas">) {
+  const areas = item.tooth_areas?.length ? item.tooth_areas : item.tooth_area ? [item.tooth_area] : []
+  return areas.map((area) => SURFACE_LABELS[area]).join(", ") || "região não informada"
+}
+
+export function DentalChartView({ patientId, appointmentId, professionalName, onTreatmentTotalChange, encounterForm, onEncounterFormChange }: DentalChartViewProps) {
+  const [selectedTooth, setSelectedTooth] = useState<number | null>(encounterForm?.tooth || null)
+  const [selectedArea, setSelectedArea] = useState<ToothArea | null>((encounterForm?.areas.at(-1) as ToothArea) || null)
+  const [selectedAreas, setSelectedAreas] = useState<ToothArea[]>((encounterForm?.areas as ToothArea[]) || [])
+  const [multiRegionMode, setMultiRegionMode] = useState(false)
   const [toothData, setToothData] = useState<Record<number, ToothState>>({})
   const [dentition, setDentition] = useState<"permanent" | "deciduous">("permanent")
   const [isLoading, setIsLoading] = useState(false)
@@ -129,11 +140,11 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
   const [treatments, setTreatments] = useState<TreatmentItem[]>([])
   const [versions, setVersions] = useState<ChartVersion[]>([])
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
-  const [selectedProcedureId, setSelectedProcedureId] = useState("")
-  const [problem, setProblem] = useState("")
-  const [notes, setNotes] = useState("")
+  const [selectedProcedureId, setSelectedProcedureId] = useState(encounterForm?.procedure_id || "")
+  const [problem, setProblem] = useState(encounterForm?.problem || "")
+  const [notes, setNotes] = useState(encounterForm?.notes || "")
   const [savingItem, setSavingItem] = useState(false)
-  const [showNotes, setShowNotes] = useState(false)
+  const [showNotes, setShowNotes] = useState(Boolean(encounterForm?.notes))
   const [removingItemId, setRemovingItemId] = useState<string | null>(null)
 
   const [catalogDialogOpen, setCatalogDialogOpen] = useState(false)
@@ -149,6 +160,15 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
   const [completionResult, setCompletionResult] = useState<ToothCondition | "">("")
   const [completingItem, setCompletingItem] = useState(false)
   const favoriteCount = catalog.filter((item) => item.is_favorite && item.is_active).length
+  const emittedForm = useRef(JSON.stringify(encounterForm))
+  useEffect(() => {
+    if (!onEncounterFormChange) return
+    const form = { tooth: selectedTooth, areas: selectedAreas, procedure_id: selectedProcedureId, problem, notes }
+    const serialized = JSON.stringify(form)
+    if (serialized === emittedForm.current) return
+    emittedForm.current = serialized
+    onEncounterFormChange(form)
+  }, [selectedTooth, selectedAreas, selectedProcedureId, problem, notes, onEncounterFormChange])
 
   const loadVersions = useCallback(async () => {
     if (!patientId) return
@@ -238,17 +258,19 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
     }))
   }, [appointmentId, patientId, professionalName])
 
-  const applyConditionToArea = useCallback(async (tooth: number, area: ToothArea, condition: ToothCondition) => {
+  const applyConditionToAreas = useCallback(async (tooth: number, areas: ToothArea[], condition: ToothCondition) => {
     const previous = toothData[tooth] || emptyTooth()
     const next: ToothState = { whole: previous.whole, surfaces: { ...previous.surfaces } }
     const value = condition === "Sem Registros" ? undefined : condition
-    if (area === "whole") {
-      next.whole = value
-      next.surfaces = {}
-    } else if (value) {
-      next.surfaces[area] = value
-    } else {
-      delete next.surfaces[area]
+    for (const area of areas) {
+      if (area === "whole") {
+        next.whole = value
+        next.surfaces = {}
+      } else if (value) {
+        next.surfaces[area] = value
+      } else {
+        delete next.surfaces[area]
+      }
     }
 
     setToothData((current) => ({ ...current, [tooth]: next }))
@@ -265,8 +287,13 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
   }, [loadVersions, saveState, toothData])
 
   const selectArea = (tooth: number, area: ToothArea) => {
+    const sameTooth = tooth === selectedTooth
+    const nextAreas = multiRegionMode && sameTooth && area !== "whole"
+      ? selectedAreas.includes(area) ? selectedAreas.filter((current) => current !== area) : [...selectedAreas.filter((current) => current !== "whole"), area]
+      : [area]
     setSelectedTooth(tooth)
-    setSelectedArea(area)
+    setSelectedAreas(nextAreas)
+    setSelectedArea(nextAreas[nextAreas.length - 1] || null)
     const current = area === "whole" ? toothData[tooth]?.whole : toothData[tooth]?.surfaces[area]
     setProblem(current && current !== "Sem Registros" ? current : "")
   }
@@ -328,7 +355,7 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
 
   const addTreatment = async () => {
     const procedure = catalog.find((item) => item.id === selectedProcedureId)
-    if (!patientId || !selectedTooth || !selectedArea) return toast.error("Selecione o dente e a região no odontograma.")
+    if (!patientId || !selectedTooth || selectedAreas.length === 0) return toast.error("Selecione o dente e a região no odontograma.")
     if (!problem.trim()) return toast.error("Informe o problema encontrado.")
     if (!procedure) return toast.error("Escolha um procedimento do catálogo.")
 
@@ -338,7 +365,8 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
         procedure_id: procedure.id,
         appointment_id: appointmentId || null,
         tooth_number: selectedTooth,
-        tooth_area: selectedArea,
+        tooth_area: selectedAreas.includes("whole") ? "whole" : selectedAreas[0],
+        tooth_areas: selectedAreas,
         problem: problem.trim(),
         treatment_type: procedure.name,
         description: procedure.description,
@@ -433,13 +461,18 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
         body: JSON.stringify({
           status: "completed",
           completed_date: today(),
+          appointment_id: appointmentId || completeItem.appointment_id || null,
           result_condition: CONDITION_TO_DB[completionResult],
           professional_name: professionalName || null,
         }),
       }))
       setTreatments((current) => current.map((item) => item.id === completeItem.id ? body.data : item))
-      if (completeItem.tooth_number && completeItem.tooth_area) {
-        await applyConditionToArea(completeItem.tooth_number, completeItem.tooth_area, completionResult)
+      if (completeItem.tooth_number && (completeItem.tooth_areas?.length || completeItem.tooth_area)) {
+        const isExtraction = /extra|exodont/i.test(completeItem.treatment_type)
+        const areas = isExtraction && completionResult === "Ausente"
+          ? ["whole" as ToothArea]
+          : completeItem.tooth_areas?.length ? completeItem.tooth_areas : [completeItem.tooth_area!]
+        await applyConditionToAreas(completeItem.tooth_number, areas, completionResult)
       }
       setCompleteItem(null)
       await loadVersions()
@@ -452,11 +485,11 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
   }
 
   const registeredCount = Object.values(toothData).filter((state) => state.whole || Object.keys(state.surfaces).length).length
-  const selectedIndicators = selectedTooth && selectedArea
-    ? [
-        ...(selectedArea === "whole" ? [] : treatmentIndicators[selectedTooth]?.whole || []),
-        ...(treatmentIndicators[selectedTooth]?.[selectedArea] || []),
-      ]
+  const selectedIndicators = selectedTooth && selectedAreas.length > 0
+    ? selectedAreas.flatMap((area) => [
+        ...(area === "whole" ? [] : treatmentIndicators[selectedTooth]?.whole || []),
+        ...(treatmentIndicators[selectedTooth]?.[area] || []),
+      ])
     : []
   const selectedVersion = versions.find((version) => version.id === selectedVersionId) || versions[0]
   const snapshotRows = selectedVersion
@@ -497,7 +530,7 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
               <div className="border-t pt-4">
                 <p className="mb-2 text-sm font-semibold">Plano registrado nesta versão</p>
                 {historicalTreatments.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum procedimento nesta versão.</p> : (
-                  <div className="space-y-2">{historicalTreatments.map((item: TreatmentItem) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/50 p-2 text-sm"><span>{item.treatment_type} · dente {item.tooth_number || "—"} · {item.tooth_area ? SURFACE_LABELS[item.tooth_area] : "região não informada"}</span><span>{money.format(Number(item.cost || 0))}</span></div>)}</div>
+                  <div className="space-y-2">{historicalTreatments.map((item: TreatmentItem) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/50 p-2 text-sm"><span>{item.treatment_type} · dente {item.tooth_number || "—"} · {treatmentAreas(item)}</span><span>{money.format(Number(item.cost || 0))}</span></div>)}</div>
                 )}
               </div>
             </CardContent>
@@ -508,16 +541,17 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
           <Card className="overflow-hidden">
             <div className="border-b px-3 py-2 sm:px-4">
               <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-sm">
-                {selectedTooth && selectedArea ? <strong>Dente {selectedTooth} · {SURFACE_LABELS[selectedArea]}</strong> : <span className="text-muted-foreground">Selecione uma face, raiz ou o dente inteiro.</span>}
+                {selectedTooth && selectedAreas.length > 0 ? <strong>Dente {selectedTooth} · {selectedAreas.map((area) => SURFACE_LABELS[area]).join(", ")}</strong> : <span className="text-muted-foreground">Selecione uma face, raiz ou o dente inteiro.</span>}
                 {versionControls}
               </div>
               {selectedIndicators.length > 0 && <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span>Procedimentos nesta região:</span>{selectedIndicators.map((indicator, index) => <span key={`${indicator.label}-${index}`} className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: indicator.color }} />{indicator.label}</span>)}</div>}
             </div>
             <CardContent className="p-2.5 sm:p-4">
-              <Tabs value={dentition} onValueChange={(value) => { setDentition(value as typeof dentition); setSelectedTooth(null); setSelectedArea(null) }} className="mb-3">
+              <Tabs value={dentition} onValueChange={(value) => { setDentition(value as typeof dentition); setSelectedTooth(null); setSelectedArea(null); setSelectedAreas([]) }} className="mb-3">
                 <TabsList className="mx-auto grid w-full max-w-sm grid-cols-2"><TabsTrigger value="permanent">Permanentes</TabsTrigger><TabsTrigger value="deciduous">Decíduos</TabsTrigger></TabsList>
               </Tabs>
-              {isLoading ? <div className="flex h-56 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div> : <DentalChart selectedTooth={selectedTooth} selectedArea={selectedArea} onAreaSelect={selectArea} toothData={toothData} treatmentIndicators={treatmentIndicators} dentition={dentition} />}
+              {isLoading ? <div className="flex h-56 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div> : <DentalChart selectedTooth={selectedTooth} selectedArea={selectedArea} selectedAreas={selectedAreas} onAreaSelect={selectArea} toothData={toothData} treatmentIndicators={treatmentIndicators} dentition={dentition} />}
+              <div className="mt-2 text-center"><Button type="button" size="sm" variant={multiRegionMode ? "default" : "outline"} onClick={() => setMultiRegionMode((value) => !value)} aria-pressed={multiRegionMode}>{multiRegionMode ? "Seleção múltipla ativada" : "Selecionar várias regiões"}</Button>{multiRegionMode && <p className="mt-1 text-xs text-muted-foreground">Clique nas regiões do mesmo dente. Cada procedimento será cobrado uma vez pelo valor informado.</p>}</div>
               <p className="mt-3 text-center text-xs text-muted-foreground">{savingTooth ? `Salvando dente ${savingTooth}...` : `${registeredCount} dente${registeredCount === 1 ? "" : "s"} com registro clínico`}</p>
             </CardContent>
           </Card>
@@ -527,14 +561,14 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                 <div className="min-w-0 flex-1 space-y-2">
                   <Label>Procedimento</Label>
-                  <Button type="button" variant="outline" className="w-full justify-between font-normal" onClick={() => setProcedurePickerOpen(true)} disabled={!selectedTooth || !selectedArea}>
+                  <Button type="button" variant="outline" className="w-full justify-between font-normal" onClick={() => setProcedurePickerOpen(true)} disabled={!selectedTooth || selectedAreas.length === 0}>
                     <span className="truncate">{catalog.find((item) => item.id === selectedProcedureId)?.name || "Selecionar procedimento"}</span>
                     <span className="text-muted-foreground">⌄</span>
                   </Button>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
                   {showNotes ? <Button type="button" variant="outline" size="sm" onClick={() => { setShowNotes(false); setNotes("") }}><X className="mr-1 h-3.5 w-3.5" />Ocultar observação</Button> : <Button type="button" variant="ghost" size="sm" onClick={() => setShowNotes(true)}>+ Adicionar observação</Button>}
-                  <Button onClick={addTreatment} disabled={savingItem || !selectedTooth || !selectedArea || !selectedProcedureId}>{savingItem ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : <><Plus className="mr-2 h-4 w-4" />Adicionar</>}</Button>
+                  <Button onClick={addTreatment} disabled={savingItem || !selectedTooth || selectedAreas.length === 0 || !selectedProcedureId}>{savingItem ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : <><Plus className="mr-2 h-4 w-4" />Adicionar</>}</Button>
                 </div>
               </div>
               {showNotes && <div className="space-y-2"><Label htmlFor="odontogram-notes">Observação</Label><Textarea id="odontogram-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Detalhes clínicos ou do planejamento" /></div>}
@@ -547,7 +581,7 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
                       <div key={item.id} className={cn("flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between", item.status === "planned" && "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20")}>
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{item.treatment_type}</p>{item.status === "planned" ? <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100"><Clock3 className="mr-1 h-3 w-3" />Pendente</Badge> : item.status === "completed" ? <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100"><CheckCircle2 className="mr-1 h-3 w-3" />Realizado</Badge> : <Badge variant="secondary">Cancelado</Badge>}</div>
-                          <p className="mt-1 text-sm text-muted-foreground">Dente {item.tooth_number || "—"} · {item.tooth_area ? SURFACE_LABELS[item.tooth_area] : "região não informada"}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Dente {item.tooth_number || "—"} · {treatmentAreas(item)}</p>
                           {item.notes && <p className="mt-1 text-xs text-muted-foreground">{item.notes}</p>}
                         </div>
                         <div className="flex shrink-0 flex-wrap items-center gap-2">{item.status === "planned" && <Button size="sm" onClick={() => openCompletion(item)}><Check className="mr-1 h-4 w-4" />Concluir</Button>}<Button size="sm" variant="outline" onClick={() => editTreatment(item)}><Pencil className="mr-1 h-3.5 w-3.5" />Editar</Button><Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={removingItemId === item.id} onClick={() => removeTreatment(item)}>{removingItemId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Trash2 className="mr-1 h-3.5 w-3.5" />{item.status === "planned" ? "Remover" : "Cancelar"}</>}</Button></div>
@@ -603,7 +637,7 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
         <DialogContent>
           <DialogHeader><DialogTitle>Concluir tratamento</DialogTitle><DialogDescription>Confirme como ficou o dente. O estado atual será atualizado e a versão anterior continuará no histórico.</DialogDescription></DialogHeader>
           <div className="space-y-3 py-2">
-            {completeItem && <div className="rounded-lg bg-muted p-3 text-sm"><strong>{completeItem.treatment_type}</strong><br />Dente {completeItem.tooth_number} · {completeItem.tooth_area ? SURFACE_LABELS[completeItem.tooth_area] : "região não informada"}</div>}
+            {completeItem && <div className="rounded-lg bg-muted p-3 text-sm"><strong>{completeItem.treatment_type}</strong><br />Dente {completeItem.tooth_number} · {treatmentAreas(completeItem)}</div>}
             <div className="space-y-2"><Label>Resultado atual *</Label><Select value={completionResult} onValueChange={(value) => setCompletionResult(value as ToothCondition)}><SelectTrigger><SelectValue placeholder="Selecione o resultado" /></SelectTrigger><SelectContent>{CONDITIONS.filter((item) => item.value !== "Sem Registros").map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setCompleteItem(null)}>Cancelar</Button><Button onClick={confirmCompletion} disabled={completingItem || !completionResult}>{completingItem ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar conclusão"}</Button></DialogFooter>

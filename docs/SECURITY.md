@@ -26,6 +26,10 @@
 
 Execute `scripts/005_security_hardening.sql` antes de publicar esta versão. A migração cria administradores persistidos, auditoria, rate limits e solicitações de exportação/exclusão. Sem ela, as operações protegidas falham de forma segura.
 
+Depois das migrações de estrutura, execute `scripts/012_security_advisor_hardening.sql`. Ela remove o acesso direto do papel `anon` às tabelas da aplicação, limita o papel `authenticated` ao que o middleware realmente consulta e revoga chamadas RPC para funções internas. A rota de saúde usa `service_role` no servidor para continuar funcionando sem reabrir tabelas ao navegador.
+
+No painel do Supabase, em Authentication, habilite a proteção contra senhas vazadas (Leaked password protection). Essa configuração é externa ao SQL e elimina o alerta correspondente do Security Advisor.
+
 O primeiro administrador global deve ser cadastrado manualmente no SQL Editor com o UUID correto do Supabase Auth. A tabela não possui políticas para o navegador e somente o backend administrativo pode consultá-la.
 
 Consulte também [DATA_RETENTION.md](DATA_RETENTION.md).

@@ -4,7 +4,7 @@ import { notificarConfirmacaoConsulta } from "@/lib/whatsapp"
 import { stripImmutableTenantFields } from "@/lib/security/request-data"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
 import { appointmentInputSchema, parseInput } from "@/lib/validation/api-schemas"
-import { shouldCreateFinancialPending, validateAppointmentTransition } from "@/lib/appointments/lifecycle"
+import { validateAppointmentTransition } from "@/lib/appointments/lifecycle"
 
 export async function GET(
   request: Request,
@@ -38,12 +38,15 @@ export async function PATCH(
   const parsed = parseInput(appointmentInputSchema.partial(), stripImmutableTenantFields(await request.json()))
   if (!parsed.data) return NextResponse.json({ error: parsed.error }, { status: 400 })
   const body = parsed.data
+  if (body.status === "Concluída") {
+    const { error: schemaError } = await supabase.from("encounter_drafts").select("id").eq("clinic_id", ownerId).limit(1)
+    if (schemaError) return NextResponse.json({ error: "Aplique a migração 014 antes de encerrar consultas nesta versão do aplicativo." }, { status: 503 })
+  }
   if (body.patient_id && !(await patientBelongsToClinic(supabase, body.patient_id, ownerId))) {
     return NextResponse.json({ error: "Paciente não pertence à clínica." }, { status: 403 })
   }
 
-  // Busca o estado anterior para detectar transições e permitir compensação
-  // caso o lançamento financeiro não possa ser criado.
+  // A migração 014 cria a pendência na mesma transação do encerramento.
   const { data: anterior } = await supabase
     .from("appointments")
     .select("status, cost, payment_method")
@@ -64,52 +67,7 @@ export async function PATCH(
     .select(`*, patient:patients(id, full_name, phone, email)`)
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  // O lançamento nasce no servidor junto com o encerramento. Assim não existe
-  // mais a janela em que a consulta fica concluída, mas a segunda requisição do
-  // navegador falha e deixa o caixa sem pendência.
-  if (shouldCreateFinancialPending(anterior.status, body.status)) {
-    const { data: existingTransaction } = await supabase
-      .from("financial_transactions")
-      .select("id")
-      .eq("user_id", ownerId)
-      .eq("source_appointment_id", id)
-      .maybeSingle()
-
-    if (!existingTransaction) {
-      const { error: financialError } = await supabase
-        .from("financial_transactions")
-        .insert({
-          user_id: ownerId,
-          patient_id: data.patient_id,
-          description: `Consulta - ${data.procedure_type || "Consulta"} (${data.patient?.full_name || ""})`,
-          amount: data.cost,
-          payment_method: null,
-          type: "income",
-          status: "pending",
-          verification_status: "pending_verification",
-          source_appointment_id: id,
-        })
-
-      if (financialError) {
-        await supabase
-          .from("appointments")
-          .update({
-            status: anterior?.status,
-            cost: anterior?.cost,
-            payment_method: anterior?.payment_method,
-          })
-          .eq("id", id)
-          .eq("user_id", ownerId)
-
-        return NextResponse.json(
-          { error: `Não foi possível lançar a pendência financeira: ${financialError.message}` },
-          { status: 500 }
-        )
-      }
-    }
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: error.code === "P0001" || error.code === "23505" ? 409 : 500 })
 
   // ── Cancelamento: cancela transação financeira vinculada ─────────────────
   if (body.status === "Cancelada" || body.status === "Falta") {
@@ -118,9 +76,7 @@ export async function PATCH(
       .update({ status: "cancelled" })
       .eq("user_id", ownerId)
       .eq("status", "pending")
-      .or(`description.ilike.%${data.procedure_type}%,patient_id.eq.${data.patient_id}`)
-      .gte("created_at", data.date + "T00:00:00")
-      .lte("created_at", data.date + "T23:59:59")
+      .eq("source_appointment_id", id)
   }
 
   // ── Confirmação: dispara notificação WhatsApp ─────────────────────────────

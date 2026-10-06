@@ -21,6 +21,7 @@ import {
 } from "lucide-react"
 import { useFinancialTransactions, usePatients, createFinancialTransaction } from "@/lib/hooks/use-data"
 import { toast } from "sonner"
+import Link from "next/link"
 
 const PAYMENT_METHODS = [
   { value: "Espécie", label: "Espécie", icon: Banknote },
@@ -248,13 +249,13 @@ function CashClosing({ onMutate }: { onMutate: () => void }) {
 }
 
 // ── View principal de Financeiro ──────────────────────────────────────────
-export function FinancialView() {
+export function FinancialView({ appointmentId }: { appointmentId?: string } = {}) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState("all")
   const [filterMethod, setFilterMethod] = useState("all")
-  const [filterPeriod, setFilterPeriod] = useState("month")
+  const [filterPeriod, setFilterPeriod] = useState(appointmentId ? "all" : "month")
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [transactionToReceive, setTransactionToReceive] = useState<any | null>(null)
   const [receiveMethod, setReceiveMethod] = useState("")
@@ -292,6 +293,7 @@ export function FinancialView() {
 
   const { transactions, isLoading, mutate } = useFinancialTransactions({
     status: filterStatus !== "all" ? filterStatus : undefined,
+    sourceAppointmentId: appointmentId,
     ...dateFilter,
   })
 
@@ -396,6 +398,7 @@ export function FinancialView() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Financeiro</h1>
           <p className="text-muted-foreground">Registro de pagamentos e receitas da clínica</p>
+          {appointmentId && <p className="mt-2 text-sm text-primary">Mostrando a cobrança desta consulta. <Link className="underline" href="/financeiro">Ver todas as cobranças</Link></p>}
         </div>
         <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm() }}>
           <DialogTrigger asChild>
