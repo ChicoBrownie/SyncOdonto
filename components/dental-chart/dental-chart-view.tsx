@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { EncounterPayload } from "@/lib/encounters/model"
 import {
   Check, CheckCircle2, Clock3, History, Loader2,
-  Pencil, Plus, Sparkles, Trash2, X,
+  Pencil, Plus, Sparkles, Trash2, X, ZoomIn, ZoomOut,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -129,7 +129,7 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
   const [selectedTooth, setSelectedTooth] = useState<number | null>(encounterForm?.tooth || null)
   const [selectedArea, setSelectedArea] = useState<ToothArea | null>((encounterForm?.areas.at(-1) as ToothArea) || null)
   const [selectedAreas, setSelectedAreas] = useState<ToothArea[]>((encounterForm?.areas as ToothArea[]) || [])
-  const [multiRegionMode, setMultiRegionMode] = useState(false)
+  const [chartZoom, setChartZoom] = useState(100)
   const [toothData, setToothData] = useState<Record<number, ToothState>>({})
   const [dentition, setDentition] = useState<"permanent" | "deciduous">("permanent")
   const [isLoading, setIsLoading] = useState(false)
@@ -288,7 +288,7 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
 
   const selectArea = (tooth: number, area: ToothArea) => {
     const sameTooth = tooth === selectedTooth
-    const nextAreas = multiRegionMode && sameTooth && area !== "whole"
+    const nextAreas = sameTooth && area !== "whole"
       ? selectedAreas.includes(area) ? selectedAreas.filter((current) => current !== area) : [...selectedAreas.filter((current) => current !== "whole"), area]
       : [area]
     setSelectedTooth(tooth)
@@ -550,8 +550,9 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
               <Tabs value={dentition} onValueChange={(value) => { setDentition(value as typeof dentition); setSelectedTooth(null); setSelectedArea(null); setSelectedAreas([]) }} className="mb-3">
                 <TabsList className="mx-auto grid w-full max-w-sm grid-cols-2"><TabsTrigger value="permanent">Permanentes</TabsTrigger><TabsTrigger value="deciduous">Decíduos</TabsTrigger></TabsList>
               </Tabs>
-              {isLoading ? <div className="flex h-56 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div> : <DentalChart selectedTooth={selectedTooth} selectedArea={selectedArea} selectedAreas={selectedAreas} onAreaSelect={selectArea} toothData={toothData} treatmentIndicators={treatmentIndicators} dentition={dentition} />}
-              <div className="mt-2 text-center"><Button type="button" size="sm" variant={multiRegionMode ? "default" : "outline"} onClick={() => setMultiRegionMode((value) => !value)} aria-pressed={multiRegionMode}>{multiRegionMode ? "Seleção múltipla ativada" : "Selecionar várias regiões"}</Button>{multiRegionMode && <p className="mt-1 text-xs text-muted-foreground">Clique nas regiões do mesmo dente. Cada procedimento será cobrado uma vez pelo valor informado.</p>}</div>
+              <div className="mb-2 flex items-center justify-end gap-2"><Button type="button" size="icon" variant="outline" aria-label="Diminuir odontograma" disabled={chartZoom <= 70} onClick={() => setChartZoom(value => Math.max(70, value - 10))}><ZoomOut className="h-4 w-4" /></Button><span className="min-w-10 text-center text-xs">{chartZoom}%</span><Button type="button" size="icon" variant="outline" aria-label="Aumentar odontograma" disabled={chartZoom >= 150} onClick={() => setChartZoom(value => Math.min(150, value + 10))}><ZoomIn className="h-4 w-4" /></Button></div>
+              <div className="overflow-auto">{isLoading ? <div className="flex h-56 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div> : <div style={{ zoom: chartZoom / 100 }}><DentalChart selectedTooth={selectedTooth} selectedArea={selectedArea} selectedAreas={selectedAreas} onAreaSelect={selectArea} toothData={toothData} treatmentIndicators={treatmentIndicators} dentition={dentition} /></div>}</div>
+              <p className="mt-2 text-center text-xs text-muted-foreground">Toque nas faces do mesmo dente para selecionar várias regiões.</p>
               <p className="mt-3 text-center text-xs text-muted-foreground">{savingTooth ? `Salvando dente ${savingTooth}...` : `${registeredCount} dente${registeredCount === 1 ? "" : "s"} com registro clínico`}</p>
             </CardContent>
           </Card>
@@ -571,6 +572,7 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
                   <Button onClick={addTreatment} disabled={savingItem || !selectedTooth || selectedAreas.length === 0 || !selectedProcedureId}>{savingItem ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : <><Plus className="mr-2 h-4 w-4" />Adicionar</>}</Button>
                 </div>
               </div>
+              {procedurePickerOpen && <div className="rounded-lg border border-primary/30 bg-background p-2 shadow-sm"><Input value={procedureSearch} onChange={event => setProcedureSearch(event.target.value)} placeholder="Pesquisar procedimento" aria-label="Pesquisar procedimento" /><div className="mt-2 max-h-36 space-y-1 overflow-y-auto">{filteredCatalog.length === 0 ? <p className="p-2 text-sm text-muted-foreground">Nenhum procedimento encontrado.</p> : filteredCatalog.map(item => <button key={item.id} type="button" onClick={() => chooseProcedure(item)} className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-muted">{item.name}</button>)}</div><div className="mt-2 flex justify-between gap-2"><Button type="button" size="sm" variant="ghost" onClick={() => { setProcedurePickerOpen(false); setProcedureSearch("") }}>Fechar</Button><Button type="button" size="sm" variant="outline" onClick={() => { setProcedurePickerOpen(false); setCatalogDialogOpen(true) }}>Cadastrar novo</Button></div></div>}
               {showNotes && <div className="space-y-2"><Label htmlFor="odontogram-notes">Observação</Label><Textarea id="odontogram-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Detalhes clínicos ou do planejamento" /></div>}
 
               <div className="border-t pt-3">
@@ -581,7 +583,7 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
                       <div key={item.id} className={cn("flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between", item.status === "planned" && "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20")}>
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{item.treatment_type}</p>{item.status === "planned" ? <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100"><Clock3 className="mr-1 h-3 w-3" />Pendente</Badge> : item.status === "completed" ? <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100"><CheckCircle2 className="mr-1 h-3 w-3" />Realizado</Badge> : <Badge variant="secondary">Cancelado</Badge>}</div>
-                          <p className="mt-1 text-sm text-muted-foreground">Dente {item.tooth_number || "—"} · {treatmentAreas(item)}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Dente {item.tooth_number || "—"} · {treatmentAreas(item)}</p><p className="mt-1 font-semibold text-primary">{money.format(Number(item.cost || 0))}</p>
                           {item.notes && <p className="mt-1 text-xs text-muted-foreground">{item.notes}</p>}
                         </div>
                         <div className="flex shrink-0 flex-wrap items-center gap-2">{item.status === "planned" && <Button size="sm" onClick={() => openCompletion(item)}><Check className="mr-1 h-4 w-4" />Concluir</Button>}<Button size="sm" variant="outline" onClick={() => editTreatment(item)}><Pencil className="mr-1 h-3.5 w-3.5" />Editar</Button><Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={removingItemId === item.id} onClick={() => removeTreatment(item)}>{removingItemId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Trash2 className="mr-1 h-3.5 w-3.5" />{item.status === "planned" ? "Remover" : "Cancelar"}</>}</Button></div>
@@ -595,19 +597,6 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
           </Card>
         </>
       )}
-
-      <Dialog open={procedurePickerOpen} onOpenChange={(open) => { setProcedurePickerOpen(open); if (!open) setProcedureSearch("") }}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Selecionar procedimento</DialogTitle><DialogDescription>Pesquise no catálogo da clínica ou cadastre um novo procedimento.</DialogDescription></DialogHeader>
-          <div className="space-y-3 py-2">
-            <Input value={procedureSearch} onChange={(event) => setProcedureSearch(event.target.value)} placeholder="Pesquisar procedimento" autoFocus />
-            <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-1">
-              {filteredCatalog.length === 0 ? <p className="p-3 text-center text-sm text-muted-foreground">Nenhum procedimento encontrado.</p> : filteredCatalog.map((item) => <button key={item.id} type="button" onClick={() => chooseProcedure(item)} className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-muted"><strong>{item.name}</strong>{item.description && <span className="ml-2 text-xs text-muted-foreground">{item.description}</span>}</button>)}
-            </div>
-            <Button type="button" variant="outline" className="w-full" onClick={() => { setProcedurePickerOpen(false); setCatalogDialogOpen(true) }}><Plus className="mr-2 h-4 w-4" />Cadastrar novo procedimento</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={Boolean(editingTreatment)} onOpenChange={(open) => { if (!open) setEditingTreatment(null) }}>
         <DialogContent>

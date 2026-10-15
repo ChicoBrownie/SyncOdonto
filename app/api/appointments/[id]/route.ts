@@ -5,6 +5,7 @@ import { stripImmutableTenantFields } from "@/lib/security/request-data"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
 import { appointmentInputSchema, parseInput } from "@/lib/validation/api-schemas"
 import { validateAppointmentTransition } from "@/lib/appointments/lifecycle"
+import { hasTimeConflict } from "@/lib/appointments/scheduling"
 
 export async function GET(
   request: Request,
@@ -49,7 +50,7 @@ export async function PATCH(
   // A migração 014 cria a pendência na mesma transação do encerramento.
   const { data: anterior } = await supabase
     .from("appointments")
-    .select("status, cost, payment_method")
+    .select("status, cost, payment_method, date, time, duration_minutes, doctor_name, patient_id")
     .eq("id", id)
     .eq("user_id", ownerId)
     .single()
@@ -58,6 +59,19 @@ export async function PATCH(
 
   const transitionError = validateAppointmentTransition(anterior.status, body.status)
   if (transitionError) return NextResponse.json({ error: transitionError }, { status: 409 })
+
+  if (body.date !== undefined || body.time !== undefined || body.duration_minutes !== undefined || body.doctor_name !== undefined || body.patient_id !== undefined) {
+    if (["Em Andamento", "Concluída", "Cancelada", "Falta"].includes(anterior.status)) return NextResponse.json({ error: "Esta consulta não pode ser reagendada." }, { status: 409 })
+    const date = body.date ?? anterior.date
+    const time = body.time ?? anterior.time
+    const duration = body.duration_minutes ?? anterior.duration_minutes ?? 60
+    const doctor = body.doctor_name ?? anterior.doctor_name
+    const patient = body.patient_id ?? anterior.patient_id
+    const { data: occupied, error: slotError } = await supabase.from("appointments").select("id,time,duration_minutes,doctor_name,patient_id,status").eq("user_id", ownerId).eq("date", date).neq("id", id).not("status", "in", '("Cancelada","Concluída","Falta")')
+    if (slotError) return NextResponse.json({ error: slotError.message }, { status: 500 })
+    const conflict = (occupied || []).find((item: any) => hasTimeConflict(time, duration, item.time, item.duration_minutes ?? 60) && (item.patient_id === patient || item.doctor_name?.trim().toLocaleLowerCase("pt-BR") === doctor?.trim().toLocaleLowerCase("pt-BR")))
+    if (conflict) return NextResponse.json({ error: "Conflito de horário para este paciente ou profissional." }, { status: 409 })
+  }
 
   const { data, error } = await supabase
     .from("appointments")

@@ -1,5 +1,6 @@
 "use client"
 
+import { useRef } from "react"
 import { Check } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -102,6 +103,8 @@ function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, 
   mobileExpanded?: boolean
   onSelect: (area: ToothArea) => void
 }) {
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const held = useRef(false)
   const indicatorColors = (area: ToothArea) => {
     const values = area === "whole"
       ? indicators.whole || []
@@ -116,8 +119,16 @@ function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, 
     return conditionHex(state?.surfaces[surface] || state?.whole)
   }
   const select = (area: ToothArea) => {
+    if (held.current) { held.current = false; return }
     if (!readOnly) onSelect(multiSelectMode ? "whole" : area)
   }
+  const holdProps = (area: ToothArea) => ({
+    onPointerDown: () => { if (readOnly) return; held.current = false; holdTimer.current = setTimeout(() => { held.current = true; onSelect(area) }, 450) },
+    onPointerUp: () => { if (holdTimer.current) clearTimeout(holdTimer.current) },
+    onPointerCancel: () => { if (holdTimer.current) clearTimeout(holdTimer.current) },
+    onPointerLeave: () => { if (holdTimer.current) clearTimeout(holdTimer.current) },
+    onContextMenu: (event: React.MouseEvent) => event.preventDefault(),
+  })
   const keyboard = (event: React.KeyboardEvent, area: ToothArea) => {
     if (!readOnly && (event.key === "Enter" || event.key === " ")) {
       event.preventDefault()
@@ -145,6 +156,7 @@ function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, 
   return (
     <div className={cn("relative flex flex-col items-center", mobileExpanded ? "w-10" : "w-5 sm:w-9 lg:w-[52px]", checked && "scale-105")}>
       <button
+        {...holdProps("whole")}
         type="button"
         disabled={readOnly}
         onClick={() => select("whole")}
@@ -169,12 +181,12 @@ function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, 
             </pattern>
           })}
         </defs>
-        <path tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS.root} do dente ${number}`} onClick={() => select("root")} onKeyDown={(event) => keyboard(event, "root")} className={areaClass("root")} fill={fill("root")} d={rootPath} />
-        <path tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS.vestibular} do dente ${number}`} onClick={() => select("vestibular")} onKeyDown={(event) => keyboard(event, "vestibular")} className={areaClass("vestibular")} fill={fill("vestibular")} d={`M3 ${crownTop} H43 L33 ${innerTop} H13 Z`} />
-        <path tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS.lingual} do dente ${number}`} onClick={() => select("lingual")} onKeyDown={(event) => keyboard(event, "lingual")} className={areaClass("lingual")} fill={fill("lingual")} d={`M3 ${crownBottom} H43 L33 ${innerBottom} H13 Z`} />
-        <path tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS[leftSurface]} do dente ${number}`} onClick={() => select(leftSurface)} onKeyDown={(event) => keyboard(event, leftSurface)} className={areaClass(leftSurface)} fill={fill(leftSurface)} d={`M3 ${crownTop} L13 ${innerTop} V${innerBottom} L3 ${crownBottom} Z`} />
-        <path tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS[rightSurface]} do dente ${number}`} onClick={() => select(rightSurface)} onKeyDown={(event) => keyboard(event, rightSurface)} className={areaClass(rightSurface)} fill={fill(rightSurface)} d={`M43 ${crownTop} L33 ${innerTop} V${innerBottom} L43 ${crownBottom} Z`} />
-        <rect tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS.occlusal} do dente ${number}`} onClick={() => select("occlusal")} onKeyDown={(event) => keyboard(event, "occlusal")} className={areaClass("occlusal")} fill={fill("occlusal")} x="13" y={innerTop} width="20" height={innerBottom - innerTop} rx="3" />
+        <path {...holdProps("root")} tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS.root} do dente ${number}`} onClick={() => select("root")} onKeyDown={(event) => keyboard(event, "root")} className={areaClass("root")} fill={fill("root")} d={rootPath} />
+        <path {...holdProps("vestibular")} tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS.vestibular} do dente ${number}`} onClick={() => select("vestibular")} onKeyDown={(event) => keyboard(event, "vestibular")} className={areaClass("vestibular")} fill={fill("vestibular")} d={`M3 ${crownTop} H43 L33 ${innerTop} H13 Z`} />
+        <path {...holdProps("lingual")} tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS.lingual} do dente ${number}`} onClick={() => select("lingual")} onKeyDown={(event) => keyboard(event, "lingual")} className={areaClass("lingual")} fill={fill("lingual")} d={`M3 ${crownBottom} H43 L33 ${innerBottom} H13 Z`} />
+        <path {...holdProps(leftSurface)} tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS[leftSurface]} do dente ${number}`} onClick={() => select(leftSurface)} onKeyDown={(event) => keyboard(event, leftSurface)} className={areaClass(leftSurface)} fill={fill(leftSurface)} d={`M3 ${crownTop} L13 ${innerTop} V${innerBottom} L3 ${crownBottom} Z`} />
+        <path {...holdProps(rightSurface)} tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS[rightSurface]} do dente ${number}`} onClick={() => select(rightSurface)} onKeyDown={(event) => keyboard(event, rightSurface)} className={areaClass(rightSurface)} fill={fill(rightSurface)} d={`M43 ${crownTop} L33 ${innerTop} V${innerBottom} L43 ${crownBottom} Z`} />
+        <rect {...holdProps("occlusal")} tabIndex={readOnly ? -1 : 0} role="button" aria-label={`${SURFACE_LABELS.occlusal} do dente ${number}`} onClick={() => select("occlusal")} onKeyDown={(event) => keyboard(event, "occlusal")} className={areaClass("occlusal")} fill={fill("occlusal")} x="13" y={innerTop} width="20" height={innerBottom - innerTop} rx="3" />
         <text x="23" y={upper ? 23 : 61} textAnchor="middle" className="pointer-events-none fill-slate-500 text-[7px] font-bold">R</text>
       </svg>
       {checked && <span className={cn("absolute -right-0.5 flex items-center justify-center rounded-full bg-primary text-primary-foreground", mobileExpanded ? "top-4 h-4 w-4" : "top-3 h-3 w-3 sm:top-4 sm:h-4 sm:w-4")}><Check className={mobileExpanded ? "h-2.5 w-2.5" : "h-2 w-2 sm:h-2.5 sm:w-2.5"} /></span>}
@@ -187,22 +199,7 @@ export function DentalChart({ selectedTooth, selectedArea, selectedAreas, onArea
     ? [[18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28], [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]]
     : [[55, 54, 53, 52, 51, 61, 62, 63, 64, 65], [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]]
 
-  // No celular, separar cada arcada em lados mantém cada dente em uma área de
-  // toque confortável. Mostrar 16 dentes em uma única linha os deixava pequenos
-  // demais para o uso clínico.
-  const mobileRows = dentition === "permanent"
-    ? [
-        { label: "Superior · lado esquerdo", numbers: [18, 17, 16, 15, 14, 13, 12, 11], upper: true },
-        { label: "Superior · lado direito", numbers: [21, 22, 23, 24, 25, 26, 27, 28], upper: true },
-        { label: "Inferior · lado esquerdo", numbers: [48, 47, 46, 45, 44, 43, 42, 41], upper: false },
-        { label: "Inferior · lado direito", numbers: [31, 32, 33, 34, 35, 36, 37, 38], upper: false },
-      ]
-    : [
-        { label: "Superior · lado esquerdo", numbers: [55, 54, 53, 52, 51], upper: true },
-        { label: "Superior · lado direito", numbers: [61, 62, 63, 64, 65], upper: true },
-        { label: "Inferior · lado esquerdo", numbers: [85, 84, 83, 82, 81], upper: false },
-        { label: "Inferior · lado direito", numbers: [71, 72, 73, 74, 75], upper: false },
-      ]
+  const mobileRows = rows.map((numbers, index) => ({ label: index === 0 ? "Arcada superior" : "Arcada inferior", numbers, upper: index === 0 }))
 
   const renderTooth = (number: number, upper: boolean, mobileExpanded = false) => (
     <ToothDiagram
@@ -224,11 +221,11 @@ export function DentalChart({ selectedTooth, selectedArea, selectedAreas, onArea
 
   return (
     <div className="pb-1 sm:pb-2">
-      <div className="space-y-4 sm:hidden">
+      <div className="space-y-3 sm:hidden">
         {mobileRows.map((row) => (
-          <div key={row.label}>
+          <div key={row.label} className="overflow-x-auto">
             <p className="mb-1.5 text-center text-[10px] font-medium text-muted-foreground">{row.label}</p>
-            <div className="grid grid-cols-4 justify-items-center gap-y-2 min-[480px]:grid-cols-8">
+            <div className="mx-auto flex w-max justify-center gap-0.5">
               {row.numbers.map((number) => renderTooth(number, row.upper, true))}
             </div>
           </div>

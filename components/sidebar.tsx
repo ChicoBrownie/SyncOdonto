@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import useSWR from "swr"
 import {
-  LayoutDashboard,
+  Play,
   Users,
   Calendar,
   Building2,
@@ -70,9 +70,9 @@ function SidebarContent({
   const permissions = accessRes?.permissions
   const savedSheets = Number(sustainabilityRes?.data?.allTime?.sheets || 0)
   const menuItems = [
-    { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+    { icon: Calendar, label: "Agendamento", href: "/agenda" },
+    { icon: Play, label: "Atendimento", href: "/atendimento" },
     { icon: Users, label: "Lista de Pacientes", href: "/pacientes" },
-    { icon: Calendar, label: "Agenda Inteligente", href: "/agenda" },
     { icon: Building2, label: "Equipe", href: "/gestao-clinica" },
     ...(permissions?.financeiro === false ? [] : [{ icon: DollarSign, label: "Financeiro", href: "/financeiro" }]),
     ...(permissions?.configuracoes === false ? [] : [{ icon: Settings, label: "Configurações", href: "/configuracoes" }]),

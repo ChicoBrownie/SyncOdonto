@@ -1,6 +1,51 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+.clinical-help-button {
+  position: fixed;
+  left: 1rem;
+  bottom: calc(5.75rem + env(safe-area-inset-bottom));
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  width: 4rem;
+  height: 4rem;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0.875rem;
+  background: transparent;
+  box-shadow: 0 6px 20px rgb(6 47 64 / 0.28);
+}
+
+.clinical-help-button:hover {
+  background: transparent;
+  filter: brightness(0.94);
+}
+
+.clinical-help-button:focus-visible {
+  outline: 3px solid #079c9c;
+  outline-offset: 3px;
+}
+
+.clinical-help-button--encounter {
+  bottom: calc(10.5rem + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 1024px) {
+  .clinical-help-button,
+  .clinical-help-button--encounter {
+    bottom: 2rem;
+    left: 17rem;
+  }
+}
+
+@media (max-width: 1023px) {
+  body:has(.app-shell[data-keyboard-open="true"]) .clinical-help-button {
+    bottom: 0.75rem;
+  }
+}
+
 .app-shell { padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 .clinical-mobile-nav { padding-bottom: env(safe-area-inset-bottom); flex-shrink: 0; }
 .encounter-actions { padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }

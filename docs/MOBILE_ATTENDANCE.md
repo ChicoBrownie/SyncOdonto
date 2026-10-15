@@ -38,6 +38,12 @@ Arquivo: `scripts/014_mobile_encounters.sql`, depois das migrações existentes 
 - A 015 preserva rascunhos, consultas, documentos, registros clínicos e cobranças; não recria tabelas e pode ser reaplicada. Ela mantém os privilégios restritos a `service_role`.
 - Depois de aplicar, retomar o rascunho existente e tocar em “Atender agora”. Testar também “Agendar horário” com dados fictícios. Não é necessário descartar o rascunho ou cadastrar o paciente novamente.
 
+### Atualização do agendamento e da anamnese personalizada
+
+Depois da 015, executar `scripts/016_encounter_late_start.sql` e `scripts/017_anamnesis_custom_questions.sql`, nesta ordem. A 016 permite iniciar e assinar consultas que a agenda marcou como atrasadas. A 017 cria o modelo de perguntas personalizadas por profissional, sem alterar anamneses anteriores. As duas foram testadas em PostgreSQL descartável; **não foram aplicadas ao Supabase deste projeto**.
+
+Após aplicar, usar dados fictícios para verificar: consulta atrasada → iniciar → orçamento → assinatura → conclusão; e cadastrar uma pergunta personalizada, abrir outro atendimento do mesmo profissional e confirmar que ela aparece novamente. Sem a 017, a pergunta ainda pode ficar no rascunho atual, mas o aplicativo avisa que não conseguiu salvar o modelo reutilizável.
+
 ### Estruturas e cuidados da instalação inicial
 
 A migração cria `encounter_drafts`, `encounter_guide_visits`, funções de salvamento/ações e índices de revisão/retomada; adiciona referências de versão/hash aos documentos e a unicidade da cobrança por consulta. Instala proteção de horários, documento assinado imutável e criação financeira transacional. RLS permanece ativada e tabelas/funções novas não são acessíveis por anon/authenticated; somente as APIs autenticadas utilizam service_role.

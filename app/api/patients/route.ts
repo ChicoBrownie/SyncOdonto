@@ -10,6 +10,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url)
   const search = searchParams.get("search")
+  const cpfDigits = searchParams.get("cpf")?.replace(/\D/g, "").slice(0, 11)
   const status = searchParams.get("status")
   const limit = parseInt(searchParams.get("limit") || "50")
   const offset = parseInt(searchParams.get("offset") || "0")
@@ -21,7 +22,13 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1)
 
-  if (search) {
+  if (cpfDigits) {
+    const formatted = cpfDigits.length <= 3 ? cpfDigits
+      : cpfDigits.length <= 6 ? `${cpfDigits.slice(0, 3)}.${cpfDigits.slice(3)}`
+      : cpfDigits.length <= 9 ? `${cpfDigits.slice(0, 3)}.${cpfDigits.slice(3, 6)}.${cpfDigits.slice(6)}`
+      : `${cpfDigits.slice(0, 3)}.${cpfDigits.slice(3, 6)}.${cpfDigits.slice(6, 9)}-${cpfDigits.slice(9)}`
+    query = query.or([...new Set([cpfDigits, formatted])].map(value => `cpf.ilike.%${value}%`).join(","))
+  } else if (search) {
     const safeSearch = search.replace(/[,%()]/g, "")
     query = query.or(`full_name.ilike.%${safeSearch}%,cpf.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`)
   }

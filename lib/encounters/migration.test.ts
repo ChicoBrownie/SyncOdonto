@@ -166,4 +166,31 @@ describe.sequential("migração executada em PostgreSQL descartável", () => {
     const appointment = await db.query<{ time: string; status: string }>("select time,status from appointments where id=$1", [first.rows[0].d.appointment_id])
     expect(appointment.rows).toEqual([{ time: "15:30:00", status: "Pendente" }])
   })
+  it("inicia consulta atrasada, assina e conclui sem manter rascunho ativo", async () => {
+    await db.exec(readFileSync("scripts/016_encounter_late_start.sql", "utf8"))
+    const latePatient = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    const lateDraft = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+    const lateAppointment = "12121212-1212-4212-8212-121212121212"
+    await db.query("insert into patients(id,user_id,full_name) values($1,$2,'Paciente Fictício Atrasado')", [latePatient, clinic])
+    await db.query("insert into appointments(id,user_id,patient_id,date,time,duration_minutes,doctor_name,status) values($1,$2,$3,'2026-10-05','18:00',60,'Outro Profissional','Atrasado')", [lateAppointment, clinic, latePatient])
+    await db.query("insert into encounter_drafts(id,clinic_id,actor_user_id,patient_id,appointment_id,payload) values($1,$2,$3,$4,$5,$6::jsonb)", [lateDraft, clinic, actor, latePatient, lateAppointment, JSON.stringify(payload)])
+    const start = await db.query<{ d: { revision: number; appointment_id: string } }>("select to_jsonb(perform_encounter_action($1,$2,$3,0,'start')) d", [lateDraft, clinic, actor])
+    expect(start.rows[0].d.appointment_id).toBe(lateAppointment)
+    const sign = await db.query<{ d: { revision: number; signed_document_id: string } }>("select to_jsonb(perform_encounter_action($1,$2,$3,$4,'sign',$5::jsonb)) d", [lateDraft, clinic, actor, start.rows[0].d.revision, JSON.stringify({ signature: "data:image/png;base64,AA==", title: "Proposta fictícia", content: "Texto fictício", total: 180, hash: "ficticio" })])
+    expect(sign.rows[0].d.signed_document_id).toBeTruthy()
+    const done = await db.query<{ d: { status: string } }>("select to_jsonb(perform_encounter_action($1,$2,$3,$4,'complete')) d", [lateDraft, clinic, actor, sign.rows[0].d.revision])
+    expect(done.rows[0].d.status).toBe("completed")
+    expect((await db.query("select id from encounter_drafts where id=$1 and status='active'", [lateDraft])).rows).toHaveLength(0)
+  })
+  it("guarda perguntas personalizadas por profissional sem expô-las ao acesso comum", async () => {
+    await db.exec(readFileSync("scripts/017_anamnesis_custom_questions.sql", "utf8"))
+    await db.query("insert into anamnesis_custom_questions(clinic_id,actor_user_id,question) values($1,$2,$3)", [clinic, actor, "Pergunta personalizada fictícia?"])
+    const own = await db.query<{ question: string }>("select question from anamnesis_custom_questions where clinic_id=$1 and actor_user_id=$2", [clinic, actor])
+    const another = await db.query("select question from anamnesis_custom_questions where clinic_id=$1 and actor_user_id=$2", [clinic, other])
+    expect(own.rows).toEqual([{ question: "Pergunta personalizada fictícia?" }])
+    expect(another.rows).toHaveLength(0)
+    await db.query("set role authenticated")
+    await expect(db.query("select * from anamnesis_custom_questions")).rejects.toThrow(/permission denied/)
+    await db.query("reset role")
+  })
 })

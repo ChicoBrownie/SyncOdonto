@@ -15,7 +15,7 @@ async function fixture(page: Page, step: EncounterDraft["step"] = "anamnesis") {
   payload.appointment = { doctor_name: "Profissional Fictícia", date: "2026-10-05", time: "09:00", duration_minutes: 60 }
   payload.budget.items = [{ source_id: null, procedure: "Procedimento fictício", region: "Dente 26", unitValue: 200, discount: 20 }]
   const draft: EncounterDraft = { id, clinic_id: clinic, actor_user_id: actor, patient_id: patientId, appointment_id: "66666666-6666-4666-8666-666666666666", step, payload, revision: 0, status: "active", signed_document_id: null, clinical_revision: null, updated_at: "2026-10-05T12:00:00Z" }
-  const state = { draft, failSave: false, failAction: false, conflict: false, jsonbResponse: false, normalizeResponse: false, saveDelayMs: 0, guidesSeen: true, signCalls: 0, completeCalls: 0, publishCalls: 0, savedPayloads: [] as typeof payload[] }
+  const state = { draft, appointmentStatus: "Em Andamento", failSave: false, failAction: false, conflict: false, jsonbResponse: false, normalizeResponse: false, saveDelayMs: 0, guidesSeen: true, signCalls: 0, completeCalls: 0, publishCalls: 0, savedPayloads: [] as typeof payload[], templates: [] as { id: string; question: string }[] }
   const token = `${Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")}.${Buffer.from(JSON.stringify({ sub: actor, aud: "authenticated", role: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.synthetic`
   const cookie = `base64-${Buffer.from(JSON.stringify({ access_token: token, refresh_token: "synthetic", token_type: "bearer", expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: actor, email: "ficticio@example.invalid" } })).toString("base64url")}`
   await page.context().addCookies([{ name: "sb-127-auth-token", value: cookie, domain: "127.0.0.1", path: "/" }])
@@ -36,6 +36,8 @@ async function fixture(page: Page, step: EncounterDraft["step"] = "anamnesis") {
       const body = route.request().postDataJSON()
       if (state.failAction) return send({ error: "Não foi possível iniciar a consulta. Tente novamente." }, 500)
       if (body.action === "start") { draft.appointment_id = "66666666-6666-4666-8666-666666666666"; draft.step = "anamnesis" }
+      if (body.action === "start") state.appointmentStatus = "Em Andamento"
+      if (body.action === "schedule") { draft.appointment_id = "66666666-6666-4666-8666-666666666666"; state.appointmentStatus = "Pendente" }
       if (body.action === "publish") state.publishCalls++
       if (body.action === "sign") { state.signCalls++; draft.signed_document_id = "77777777-7777-4777-8777-777777777777"; draft.step = "financial"; draft.payload.settlement_amount = 180 }
       if (body.action === "complete") { state.completeCalls++; draft.status = "completed" }
@@ -45,9 +47,14 @@ async function fixture(page: Page, step: EncounterDraft["step"] = "anamnesis") {
     if (path === `/api/encounters/${id}`) return send({ data: draft })
     if (path === "/api/encounters") return send({ data: draft.status === "active" ? [{ ...draft, patient: { full_name: "Paciente Fictício" } }] : [] })
     if (path === "/api/encounter-guides") return send({ data: state.guidesSeen ? ["encounter-entry", "encounter-patient", "encounter-anamnesis", "encounter-chart", "encounter-budget", "encounter-signature", "encounter-financial", "patients", "agenda", "records"].map(area => ({ area })) : [] })
+    if (path === "/api/anamnesis-custom-questions") {
+      if (route.request().method() === "POST") { const question = route.request().postDataJSON().question; state.templates.push({ id: crypto.randomUUID(), question }) }
+      if (route.request().method() === "DELETE") state.templates = state.templates.filter(item => item.id !== route.request().postDataJSON().id)
+      return send({ data: state.templates })
+    }
     if (path === `/api/patients/${patientId}`) return send({ data: { id: patientId, full_name: "Paciente Fictício", allergies: "Alerta fictício", medications: null, pre_existing_conditions: null } })
     if (path === "/api/patients") return send({ data: [{ id: patientId, full_name: "Paciente Fictício", status: "Ativo", date_of_birth: "1990-01-01" }] })
-    if (path === "/api/appointments") return send({ data: draft.appointment_id ? [{ id: draft.appointment_id, patient_id: patientId, date: "2026-10-05", time: "09:00", doctor_name: "Profissional Fictícia", status: "Em Andamento" }] : [] })
+    if (path === "/api/appointments") return send({ data: draft.appointment_id ? [{ id: draft.appointment_id, patient_id: patientId, date: "2026-10-05", time: "09:00", doctor_name: "Profissional Fictícia", status: state.appointmentStatus }] : [] })
     if (path === "/api/auth/check-access") return send({ user_id: actor, access_role: "gestor", permissions: { financeiro: true, configuracoes: true, relatorios: true } })
     return send({ data: [] })
   })
@@ -59,12 +66,12 @@ test("salva anamnese e orçamento, retoma após navegação e atualização, sem
   await page.goto(`/atendimento/${id}`)
   await page.getByLabel("O que trouxe o paciente hoje?").fill("Queixa fictícia para retomada")
   await expect(page.getByText("Rascunho salvo", { exact: true })).toBeVisible()
-  await page.getByRole("link", { name: "Pacientes", exact: true }).last().click()
-  await page.getByRole("button", { name: "Agora não" }).click()
+  await page.getByRole("button", { name: "Mais" }).click()
+  await page.getByRole("menuitem", { name: "Pacientes", exact: true }).click()
   await page.getByRole("button", { name: /^Retomar atendimento/ }).click()
-  await page.getByRole("link", { name: /Paciente Fictício.*Saúde e alertas/ }).click()
+  await page.getByRole("link", { name: /Paciente Fictício.*Anamnese/ }).click()
   await expect(page.getByLabel("O que trouxe o paciente hoje?")).toHaveValue("Queixa fictícia para retomada")
-  await page.getByLabel("Ir diretamente para uma etapa").selectOption("budget")
+  await page.getByLabel("Etapa do atendimento").selectOption("budget")
   await page.getByLabel("Valor (R$)", { exact: true }).fill("250")
   await expect(page.getByText("Rascunho salvo", { exact: true })).toBeVisible()
   await page.reload()
@@ -72,6 +79,20 @@ test("salva anamnese e orçamento, retoma após navegação e atualização, sem
   expect(state.draft.payload.anamnesis.chief_complaint).toBe("Queixa fictícia para retomada")
   const storage = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))
   expect(storage).not.toContain("Queixa fictícia"); expect(storage).not.toContain("Procedimento fictício")
+})
+test("pergunta personalizada continua disponível em outro atendimento do profissional", async ({ page }) => {
+  const state = await fixture(page)
+  await page.goto(`/atendimento/${id}`)
+  await page.getByText("Perguntas personalizadas", { exact: true }).click()
+  await page.getByLabel("Nova pergunta personalizada").fill("Há sensibilidade ao frio?")
+  await page.getByRole("button", { name: "Adicionar", exact: true }).click()
+  await expect(page.getByText("Há sensibilidade ao frio?", { exact: true })).toBeVisible()
+  await expect(page.getByText("Rascunho salvo", { exact: true })).toBeVisible()
+  expect(state.templates.map(item => item.question)).toContain("Há sensibilidade ao frio?")
+  state.draft.payload.anamnesis.answers = []
+  await page.reload()
+  await page.getByText("Perguntas personalizadas", { exact: true }).click()
+  await expect(page.getByText("Há sensibilidade ao frio?", { exact: true })).toBeVisible()
 })
 test("exibe falha de salvamento e conflito sem sobrescrever o servidor", async ({ page }) => {
   const state = await fixture(page)
@@ -92,14 +113,15 @@ test("uma resposta JSONB reordenada não repete salvamentos e permite confirmar 
   const state = await fixture(page)
   state.jsonbResponse = true
   await page.goto(`/atendimento/${id}`)
-  await expect(page.getByRole("heading", { name: "Cinco perguntas iniciais" })).toBeVisible()
+  await expect(page.getByText("Saúde Geral", { exact: true })).toBeVisible()
   await expect(page.getByRole("link", { name: "Iniciar atendimento" })).toHaveCount(0)
   await expect(page.getByRole("button", { name: /^Retomar atendimento/ })).toHaveCount(0)
+  await page.getByText("Saúde Geral", { exact: true }).click()
   await page.getByRole("button", { name: "Sim", exact: true }).first().click()
   await expect(page.getByText("Rascunho salvo", { exact: true })).toBeVisible()
   await page.waitForTimeout(1300)
   expect(state.savedPayloads).toHaveLength(1)
-  await page.getByRole("button", { name: "Confirmar registro no prontuário" }).click()
+  await page.getByRole("button", { name: "Registrar e confirmar anamnese" }).click()
   await expect(page.getByText("Registro confirmado no prontuário.")).toBeVisible()
   expect(state.publishCalls).toBe(1)
   expect(state.savedPayloads).toHaveLength(1)
@@ -114,7 +136,7 @@ test("uma resposta normalizada pelo servidor não inicia gravações sem fim", a
   await page.waitForTimeout(1500)
   expect(state.savedPayloads).toHaveLength(1)
   expect(state.draft.payload.anamnesis.chief_complaint).toBe("Queixa fictícia normalizada")
-  await page.getByRole("button", { name: "Confirmar registro no prontuário" }).click()
+  await page.getByRole("button", { name: "Registrar e confirmar anamnese" }).click()
   await expect(page.getByText("Registro confirmado no prontuário.")).toBeVisible()
   expect(state.publishCalls).toBe(1)
 })
@@ -161,7 +183,7 @@ test("distingue rascunho salvo de falha ao iniciar a consulta e permite repetir 
   state.draft.appointment_id = null
   state.failAction = true
   await page.goto(`/atendimento/${id}`)
-  await page.getByRole("button", { name: "Atender agora", exact: true }).click()
+  await page.getByRole("button", { name: "Iniciar consulta agora", exact: true }).click()
   await expect(page.getByRole("alert").filter({ hasText: "Não foi possível iniciar a consulta" })).toBeVisible()
   await expect(page.getByText("Rascunho salvo", { exact: true })).toBeVisible()
   await expect(page.getByText("Não foi possível salvar no servidor. Tente novamente.", { exact: true })).toHaveCount(0)
@@ -170,9 +192,39 @@ test("distingue rascunho salvo de falha ao iniciar a consulta e permite repetir 
   await expect(page.getByText("Rascunho salvo", { exact: true })).toBeVisible()
   await expect(page.getByRole("alert").filter({ hasText: "Não foi possível iniciar a consulta" })).toBeVisible()
   state.failAction = false
-  await page.getByRole("button", { name: "Atender agora", exact: true }).click()
+  await page.getByRole("button", { name: "Iniciar consulta agora", exact: true }).click()
   await expect(page.getByLabel("O que trouxe o paciente hoje?")).toBeVisible()
   await expect(page.getByRole("alert").filter({ hasText: "Não foi possível iniciar a consulta" })).toHaveCount(0)
+})
+
+test("após agendar, inicia a consulta na mesma tela com uma ação clara", async ({ page }) => {
+  const state = await fixture(page, "patient")
+  state.draft.appointment_id = null
+  await page.goto(`/atendimento/${id}`)
+  await page.getByRole("button", { name: "Agendar horário", exact: true }).click()
+  await page.getByRole("button", { name: "Confirmar agendamento", exact: true }).click()
+  await expect(page.getByText("Horário agendado.", { exact: false }).first()).toBeVisible()
+  await page.getByRole("button", { name: "Iniciar consulta neste horário", exact: true }).click()
+  await expect(page.getByLabel("O que trouxe o paciente hoje?")).toBeVisible()
+  expect(state.appointmentStatus).toBe("Em Andamento")
+})
+
+test("busca sem cadastro preenche o nome e mostra uma informação por vez", async ({ page }) => {
+  const state = await fixture(page, "patient")
+  state.draft.patient_id = null
+  state.draft.appointment_id = null
+  await page.goto(`/atendimento/${id}`)
+  await page.getByLabel("Buscar paciente por nome ou CPF").fill("francisco henrique dos santos moura")
+  await page.getByRole("button", { name: "Novo paciente com este nome" }).click()
+  await expect(page.getByLabel("Nome completo *")).toHaveValue("Francisco Henrique Dos Santos Moura")
+  await expect(page.getByLabel("Data de nascimento *")).toHaveCount(0)
+  await page.getByRole("button", { name: "Próxima informação" }).click()
+  await page.getByLabel("Data de nascimento *").fill("1990-01-01")
+  await page.getByRole("button", { name: "Próxima informação" }).click()
+  await page.getByLabel("CPF *").fill("12345678901")
+  await page.getByRole("button", { name: "Próxima informação" }).click()
+  await expect(page.getByLabel("Telefone (opcional)")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Cadastrar e continuar" })).toBeVisible()
 })
 test("assinatura exige concordância e conclusão exige confirmação, mesmo com toque duplo", async ({ page }) => {
   const state = await fixture(page, "signature")
@@ -204,10 +256,10 @@ test("guia destaca a função, permite Escape e reabertura; exames preservam a e
   await page.getByRole("button", { name: "Ajuda", exact: true }).click()
   await expect(page.getByRole("dialog", { name: "Dentes e procedimentos" })).toBeVisible()
   await page.getByRole("button", { name: "Pular guia" }).click()
-  await page.getByRole("button", { name: "Exames", exact: true }).click()
+  await page.getByRole("button", { name: "Adicionar exames", exact: true }).click()
   await expect(page.getByRole("dialog", { name: "Exames do paciente" })).toBeVisible()
   await page.keyboard.press("Escape")
-  await expect(page.getByLabel("Ir diretamente para uma etapa")).toHaveValue("chart")
+  await expect(page.getByLabel("Etapa do atendimento")).toHaveValue("chart")
 })
 test("etapas principais cabem em telas de 320, 390 e 768 pixels", async ({ page }) => {
   await fixture(page)
@@ -215,7 +267,7 @@ test("etapas principais cabem em telas de 320, 390 e 768 pixels", async ({ page 
   for (const width of [320, 390, 768]) {
     await page.setViewportSize({ width, height: 844 })
     for (const step of ["patient", "anamnesis", "chart", "budget", "signature", "financial"]) {
-      await page.getByLabel("Ir diretamente para uma etapa").selectOption(step)
+      await page.getByLabel("Etapa do atendimento").selectOption(step)
       await expect(page.getByText("Rascunho salvo", { exact: true })).toBeVisible()
       const overflow = await page.evaluate(() => [...document.querySelectorAll("main,.encounter-editor")].some(node => node.scrollWidth > node.clientWidth + 1))
       expect(overflow, `${step} em ${width}px`).toBe(false)

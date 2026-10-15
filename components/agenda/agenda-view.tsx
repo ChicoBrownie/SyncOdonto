@@ -44,12 +44,56 @@ function toLocalDateString(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
+function formatMinutes(minutes: number): string {
+  const inDay = ((minutes % 1440) + 1440) % 1440
+  return `${String(Math.floor(inDay / 60)).padStart(2, "0")}:${String(inDay % 60).padStart(2, "0")}`
+}
+
+function appointmentColor(name: string): string {
+  const colors = [
+    "border-l-sky-500 bg-sky-100 text-sky-950",
+    "border-l-emerald-500 bg-emerald-100 text-emerald-950",
+    "border-l-violet-500 bg-violet-100 text-violet-950",
+    "border-l-amber-500 bg-amber-100 text-amber-950",
+    "border-l-rose-500 bg-rose-100 text-rose-950",
+  ]
+  const hash = Array.from(name || "Paciente").reduce((sum, char) => sum + char.charCodeAt(0), 0)
+  return colors[hash % colors.length]
+}
+
+function layoutAppointments(appointments: any[]) {
+  const sorted = [...appointments].sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))
+  const groups: any[][] = []
+  let groupEnd = -1
+  for (const appointment of sorted) {
+    const start = timeToMinutes(appointment.time)
+    const end = start + Math.max(15, Number(appointment.duration_minutes) || 60)
+    if (!groups.length || start >= groupEnd) {
+      groups.push([])
+      groupEnd = end
+    } else {
+      groupEnd = Math.max(groupEnd, end)
+    }
+    groups[groups.length - 1].push(appointment)
+  }
+  return groups.flatMap(group => {
+    const columnsEnd: number[] = []
+    const positioned = group.map(appointment => {
+      const start = timeToMinutes(appointment.time)
+      const free = columnsEnd.findIndex(end => end <= start)
+      const column = free < 0 ? columnsEnd.length : free
+      columnsEnd[column] = start + Math.max(15, Number(appointment.duration_minutes) || 60)
+      return { appointment, column }
+    })
+    return positioned.map(item => ({ ...item, columns: columnsEnd.length }))
+  })
+}
+
 type AppointmentTimeStatus = "ok" | "late" | "missed"
 
 function getAppointmentTimeStatus(
   appointmentDate: string,
-  appointmentTime: string,
-  closingHour: number
+  appointmentTime: string
 ): AppointmentTimeStatus {
   const now = new Date()
   const todayString = toLocalDateString(now)
@@ -97,6 +141,7 @@ const CANCEL_REASONS = [
 const STATUS_OPTIONS = [
   { value: "Pendente", label: "Pendente" },
   { value: "Confirmada", label: "Confirmada" },
+  { value: "Aguardando", label: "Aguardando" },
   { value: "Atrasado", label: "Atrasado" },
   { value: "Em Andamento", label: "Em Andamento" },
   { value: "Concluída", label: "Concluída" },
@@ -107,7 +152,15 @@ const STATUS_OPTIONS = [
 export function AgendaView() {
   const router = useRouter()
   const [selectedDate, setSelectedDate] = useState(new Date())
-  const [viewMode, setViewMode] = useState<"day" | "week" | "month">("day")
+  const [viewMode, setViewMode] = useState<"day" | "week" | "month" | "custom">("week")
+  const [customStart, setCustomStart] = useState(toLocalDateString(new Date()))
+  const [customEnd, setCustomEnd] = useState(toLocalDateString(new Date()))
+  const [datePickerOpen, setDatePickerOpen] = useState(false)
+  const [jumpDate, setJumpDate] = useState(toLocalDateString(new Date()))
+  const [rangeStart, setRangeStart] = useState(toLocalDateString(new Date()))
+  const [rangeEnd, setRangeEnd] = useState(toLocalDateString(new Date()))
+  const [movingId, setMovingId] = useState<string | null>(null)
+  const [movingBusy, setMovingBusy] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -137,7 +190,7 @@ export function AgendaView() {
   const monthStart = toLocalDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
   const monthEnd = toLocalDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0))
 
-  const { data: weekData } = useSWR(
+  const { data: weekData, mutate: mutateWeek } = useSWR(
     viewMode === "week" ? `/api/appointments?startDate=${weekStart}&endDate=${weekEnd}` : null,
     (url: string) => fetch(url).then(r => r.json())
   )
@@ -148,6 +201,8 @@ export function AgendaView() {
     (url: string) => fetch(url).then(r => r.json())
   )
   const monthAppointments: any[] = monthData?.data || []
+  const { data: customData } = useSWR(viewMode === "custom" && customStart <= customEnd ? `/api/appointments?startDate=${customStart}&endDate=${customEnd}` : null, (url: string) => fetch(url).then(r => r.json()))
+  const customAppointments: any[] = customData?.data || []
 
   const { patients } = usePatients()
   const { data: staffRes } = useSWR("/api/clinic-staff", (url: string) => fetch(url).then(r => r.json()))
@@ -158,25 +213,26 @@ export function AgendaView() {
     : DEFAULT_CLOSING_HOUR
 
   const [newAppointment, setNewAppointment] = useState({
-    patient_id: "", procedure_type: "Consulta", time: "",
+    patient_id: "", procedure_type: "Consulta", date: toLocalDateString(new Date()), time: "",
     duration_minutes: 60, notes: "", doctor_name: "",
   })
 
   const resetForm = () => {
-    setNewAppointment({ patient_id: "", procedure_type: "Consulta", time: "", duration_minutes: 60, notes: "", doctor_name: "" })
+    setNewAppointment({ patient_id: "", procedure_type: "Consulta", date: dateString, time: "", duration_minutes: 60, notes: "", doctor_name: "" })
     setFormError(null)
   }
 
   const handleCreateAppointment = async () => {
     setFormError(null)
     if (!newAppointment.patient_id) { setFormError("Selecione um paciente."); return }
+    if (!newAppointment.date) { setFormError("Escolha o dia da consulta."); return }
     if (!newAppointment.time) { setFormError("Informe o horário."); return }
     if (!newAppointment.doctor_name?.trim()) { setFormError("Informe o dentista responsável."); return }
     setIsCreating(true)
     try {
       await createAppointment({
         patient_id: newAppointment.patient_id,
-        date: dateString,
+        date: newAppointment.date,
         time: newAppointment.time,
         duration_minutes: newAppointment.duration_minutes,
         procedure_type: newAppointment.procedure_type,
@@ -185,6 +241,8 @@ export function AgendaView() {
         status: "Pendente",
       } as any)
       toast.success("Consulta agendada com sucesso!")
+      setSelectedDate(new Date(`${newAppointment.date}T12:00:00`))
+      setViewMode("day")
       mutate()
       setIsDialogOpen(false)
       resetForm()
@@ -206,12 +264,19 @@ export function AgendaView() {
     }
   }, [mutate])
 
-  const handleAutoMissed = useCallback(async (id: string) => {
+  const moveAppointment = async (id: string, date: string, time: string) => {
+    const item = weekAppointments.find(a => a.id === id)
+    if (!item || movingBusy) return
+    setMovingId(null)
+    if (item.date === date && item.time.slice(0, 5) === time) return
+    setMovingBusy(true)
     try {
-      await updateAppointment(id, { status: "Falta" } as any)
-      mutate()
-    } catch { /* silencioso */ }
-  }, [mutate])
+      await updateAppointment(id, { date, time } as any)
+      await Promise.all([mutateWeek(), mutate()])
+      toast.success(`Consulta remarcada para ${date.split("-").reverse().join("/")} às ${time}.`)
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível remarcar. Confira o horário.") }
+    finally { setMovingBusy(false) }
+  }
 
   // Iniciar: atualiza status e redireciona para prontuário
   const handleIniciar = async (appointment: any) => {
@@ -258,8 +323,17 @@ export function AgendaView() {
     date.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
 
   const navigateDate = (direction: "prev" | "next") => {
-    const d = new Date(selectedDate)
     const delta = direction === "next" ? 1 : -1
+    if (viewMode === "custom") {
+      const start = new Date(`${customStart}T12:00:00`)
+      const end = new Date(`${customEnd}T12:00:00`)
+      const span = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1)
+      start.setDate(start.getDate() + delta * span)
+      end.setDate(end.getDate() + delta * span)
+      setCustomStart(toLocalDateString(start)); setCustomEnd(toLocalDateString(end))
+      return
+    }
+    const d = new Date(selectedDate)
     if (viewMode === "day") d.setDate(d.getDate() + delta)
     else if (viewMode === "week") d.setDate(d.getDate() + delta * 7)
     else d.setMonth(d.getMonth() + delta)
@@ -269,6 +343,7 @@ export function AgendaView() {
   const getStatusBadge = (status: string) => {
     const map: Record<string, string> = {
       "Confirmada": "bg-green-100 text-green-800",
+      "Aguardando": "bg-teal-100 text-teal-800",
       "Pendente": "bg-blue-100 text-blue-800",
       "Atrasado": "bg-yellow-100 text-yellow-800",
       "Em Andamento": "bg-yellow-100 text-yellow-800",
@@ -281,23 +356,11 @@ export function AgendaView() {
 
   // Comparações tipadas como string explicitamente — o tipo do banco vem em inglês
   // ("active"/"inactive" etc.) mas o app inteiro usa rótulos em português.
-  const confirmedCount = appointmentsList.filter(a =>
-    (a.status as string) === "Confirmada" || (a.status as string) === "Concluída" || (a.status as string) === "Em Andamento"
-  ).length
-  const pendingCount = appointmentsList.filter(a =>
-    (a.status as string) === "Pendente" || (a.status as string) === "Atrasado"
-  ).length
-  const cancelledCount = appointmentsList.filter(a =>
-    (a.status as string) === "Cancelada" || (a.status as string) === "Falta"
-  ).length
-  const occupancyRate = appointmentsList.length ? Math.round((appointmentsList.length / 8) * 100) : 0
-  const occupancyWidth = Math.min(occupancyRate, 100)
-
   const navTitle = viewMode === "day"
     ? `${formatDisplayDate(selectedDate)} · ${formatWeekday(selectedDate)}`
     : viewMode === "week"
     ? `${weekDays[0].getDate()} – ${weekDays[6].getDate()} de ${weekDays[6].toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}`
-    : formatMonthYear(selectedDate)
+    : viewMode === "month" ? formatMonthYear(selectedDate) : `${customStart.split("-").reverse().join("/")} – ${customEnd.split("-").reverse().join("/")}`
 
   if (error) {
     return (
@@ -308,42 +371,49 @@ export function AgendaView() {
     )
   }
 
-  const WeekView = () => (
-    <div className="grid grid-cols-7 gap-2">
-      {weekDays.map((day) => {
-        const ds = toLocalDateString(day)
-        const isToday = ds === todayString
-        const isPast = ds < todayString
-        const dayAppts = weekAppointments.filter((a: any) => a.date === ds)
-        return (
-          <div key={ds} className="flex flex-col gap-1">
-            <button onClick={() => { setSelectedDate(day); setViewMode("day") }}
-              className={`rounded-lg p-2 text-center transition-colors hover:bg-muted ${isToday ? "bg-primary text-primary-foreground" : "bg-muted/40"}`}>
-              <div className="text-xs font-medium capitalize">{formatShortWeekday(day)}</div>
-              <div className={`text-lg font-bold ${isToday ? "" : isPast ? "text-muted-foreground" : "text-foreground"}`}>{day.getDate()}</div>
+  const WeekView = () => {
+    const workingStart = Number(settingsRes?.data?.working_hours?.start?.split(":")[0] ?? 7)
+    const firstHour = Math.max(0, Math.min(workingStart, ...weekAppointments.map(a => Number(a.time?.slice(0, 2) || 7))))
+    const lastHour = Math.min(24, Math.max(closingHour, ...weekAppointments.map(a => Math.ceil((timeToMinutes(a.time) + (Number(a.duration_minutes) || 60)) / 60))))
+    const slotHeight = 48
+    const slots = Array.from({ length: Math.max(1, (lastHour - firstHour) * 2) }, (_, i) => formatMinutes(firstHour * 60 + i * 30))
+    const gridHeight = slots.length * slotHeight
+
+    return <div className="overflow-x-auto overscroll-x-contain" aria-label="Agenda semanal">
+      <div className="flex w-max min-w-full">
+        <div className="sticky left-0 z-20 w-12 shrink-0 bg-card shadow-[1px_0_0_0_var(--border)]">
+          <div className="h-12 border-b border-border bg-card" />
+          <div className="relative" style={{ height: gridHeight }}>
+            {slots.map((slot, index) => <span key={slot} className={`absolute right-2 text-[11px] text-muted-foreground ${index % 2 ? "opacity-70" : "font-medium"}`} style={{ top: index * slotHeight - 7 }}>{slot}</span>)}
+          </div>
+        </div>
+        {weekDays.map(day => {
+          const ds = toLocalDateString(day)
+          const dayAppointments = layoutAppointments(weekAppointments.filter(a => a.date === ds))
+          return <div key={ds} className="w-[216px] shrink-0 border-l border-border/70 sm:w-[232px] lg:flex-1 lg:min-w-[176px]">
+            <button type="button" onClick={() => { setSelectedDate(day); setViewMode("day") }} className={`sticky top-0 z-10 flex h-12 w-full items-center justify-center gap-2 border-b border-border text-sm font-semibold capitalize ${ds === todayString ? "bg-primary/10 text-primary" : "bg-card text-foreground hover:bg-muted/70"}`}>
+              <span>{formatShortWeekday(day)}</span><span className={`grid size-7 place-items-center rounded-full ${ds === todayString ? "bg-primary text-primary-foreground" : ""}`}>{day.getDate()}</span>
             </button>
-            <div className="flex flex-col gap-1 min-h-[80px]">
-              {dayAppts.length === 0 ? (
-                <div className="rounded border border-dashed border-border p-1 text-center text-xs text-muted-foreground">—</div>
-              ) : (
-                dayAppts.slice(0, 3).map((appt: any) => (
-                  <button key={appt.id} onClick={() => { setSelectedDate(day); setViewMode("day") }}
-                    className="rounded bg-primary/10 border border-primary/20 px-1.5 py-1 text-left hover:bg-primary/20 transition-colors">
-                    <div className="text-xs font-medium text-foreground truncate">{formatTime(appt.time)}</div>
-                    <div className="text-xs text-muted-foreground truncate">{appt.patient?.full_name || "—"}</div>
-                  </button>
-                ))
-              )}
-              {dayAppts.length > 3 && (
-                <button onClick={() => { setSelectedDate(day); setViewMode("day") }}
-                  className="text-xs text-primary hover:underline text-center">+{dayAppts.length - 3} mais</button>
-              )}
+            <div className="relative" style={{ height: gridHeight }}>
+              {slots.map((slot, index) => <button key={slot} type="button" aria-label={`${day.toLocaleDateString("pt-BR")} às ${slot}`} onDragOver={event => { if (movingId) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (movingId) void moveAppointment(movingId, ds, slot) }} onClick={() => { if (movingId) void moveAppointment(movingId, ds, slot) }} className={`absolute inset-x-0 border-t text-left transition-colors ${index % 2 ? "border-border/35" : "border-border/70"} ${movingId ? "cursor-pointer hover:bg-primary/10" : "hover:bg-muted/40"}`} style={{ top: index * slotHeight, height: slotHeight }} />)}
+              {dayAppointments.map(({ appointment: appt, column, columns }) => {
+                const start = timeToMinutes(appt.time)
+                const duration = Math.max(15, Number(appt.duration_minutes) || 60)
+                const canMove = !["Concluída", "Cancelada", "Falta", "Em Andamento"].includes(appt.status)
+                const compact = duration < 45
+                const width = 100 / columns
+                return <button key={appt.id} type="button" draggable={canMove} onDragStart={event => { event.dataTransfer.effectAllowed = "move"; setMovingId(appt.id) }} onDragEnd={() => setMovingId(null)} onClick={() => { if (canMove) setMovingId(movingId === appt.id ? null : appt.id) }} aria-label={`${appt.patient?.full_name || "Paciente"}, ${formatTime(appt.time)} a ${formatMinutes(start + duration)}, ${appt.doctor_name || "dentista não informado"}. ${appt.status || ""}`} title={`${appt.patient?.full_name || "Paciente"} · ${formatTime(appt.time)}–${formatMinutes(start + duration)} · ${appt.doctor_name || ""}`} className={`absolute z-[1] overflow-hidden rounded-md border-l-4 px-2 py-1.5 text-left shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-primary ${appointmentColor(appt.doctor_name || appt.patient?.full_name || "")} ${movingId === appt.id ? "ring-2 ring-primary ring-offset-1" : ""} ${["Cancelada", "Falta"].includes(appt.status) ? "opacity-50" : ""}`} style={{ top: Math.max(0, ((start - firstHour * 60) / 30) * slotHeight + 2), height: Math.max(35, duration / 30 * slotHeight - 4), left: `calc(${column * width}% + 4px)`, width: `calc(${width}% - 8px)` }}>
+                  <span className="block truncate text-[11px] font-semibold leading-tight">{formatTime(appt.time)}–{formatMinutes(start + duration)}</span>
+                  <strong className={`block truncate text-xs leading-tight ${compact ? "mt-0.5" : "mt-1"}`}>{appt.patient?.full_name || "Paciente"}</strong>
+                  {!compact && <span className="mt-1 block truncate text-[11px] leading-tight opacity-80">{appt.doctor_name || appt.procedure_type || "Consulta"}</span>}
+                </button>
+              })}
             </div>
           </div>
-        )
-      })}
+        })}
+      </div>
     </div>
-  )
+  }
 
   const MonthView = () => {
     const weekdayLabels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
@@ -390,18 +460,14 @@ export function AgendaView() {
 
   // ── Status/ação de uma consulta — usado tanto na linha da tabela quanto no card mobile ──
   const useAppointmentState = (appointment: any) => {
-    const isActiveStatus = appointment.status === "Pendente" || appointment.status === "Confirmada" || appointment.status === "Atrasado"
+    const isActiveStatus = appointment.status === "Pendente" || appointment.status === "Confirmada" || appointment.status === "Aguardando" || appointment.status === "Atrasado"
     const timeStatus = isActiveStatus
-      ? getAppointmentTimeStatus(appointment.date, appointment.time, closingHour)
+      ? getAppointmentTimeStatus(appointment.date, appointment.time)
       : "ok"
 
     const currentStatus = timeStatus === "late" && appointment.status !== "Atrasado" && isActiveStatus
       ? "Atrasado"
       : appointment.status
-
-    if (currentStatus === "Atrasado" && appointment.status !== "Atrasado") {
-      handleUpdateStatus(appointment.id, "Atrasado")
-    }
 
     const canStart = !["Concluída", "Cancelada", "Falta", "Em Andamento"].includes(appointment.status)
     const canCancel = appointment.status !== "Concluída" &&
@@ -529,8 +595,7 @@ export function AgendaView() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Agenda Inteligente</h1>
-        <p className="text-muted-foreground">Gerencie consultas com sugestões automáticas</p>
+        <h1 className="pl-12 text-3xl font-bold text-foreground lg:pl-0">Agendamento</h1>
       </div>
 
       {/* Navegação */}
@@ -541,24 +606,25 @@ export function AgendaView() {
               <Button variant="outline" size="icon" className="bg-transparent shrink-0" onClick={() => navigateDate("prev")}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <div className="flex items-center gap-2 min-w-0">
-                <Calendar className="h-5 w-5 text-primary shrink-0" />
-                <span className="text-sm sm:text-base font-semibold text-foreground capitalize truncate">{navTitle}</span>
-              </div>
+              <button type="button" onClick={() => { setJumpDate(dateString); setRangeStart(viewMode === "custom" ? customStart : weekStart); setRangeEnd(viewMode === "custom" ? customEnd : weekEnd); setDatePickerOpen(true) }} className="flex min-w-0 items-center gap-2 rounded-md px-1 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary" aria-label="Escolher data ou intervalo">
+                <Calendar className="h-5 w-5 shrink-0 text-primary" />
+                <span className="truncate text-sm font-semibold capitalize text-foreground sm:text-base">{navTitle}</span>
+              </button>
               <Button variant="outline" size="icon" className="bg-transparent shrink-0" onClick={() => navigateDate("next")}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex gap-2">
-                {(["day", "week", "month"] as const).map((mode) => (
+                 {(["day", "week", "month"] as const).map((mode) => (
                   <Button key={mode} variant={viewMode === mode ? "default" : "outline"} size="sm"
+                    aria-pressed={viewMode === mode}
                     onClick={() => setViewMode(mode)} className={viewMode !== mode ? "bg-transparent" : ""}>
-                    {mode === "day" ? "Dia" : mode === "week" ? "Semana" : "Mês"}
+                     {mode === "day" ? "Dia" : mode === "week" ? "Semana" : "Mês"}
                   </Button>
                 ))}
               </div>
-              <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm() }}>
+              <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (open) setNewAppointment(current => ({ ...current, date: dateString })); else resetForm() }}>
                 <DialogTrigger asChild>
                   <Button className="gap-2">
                     <Plus className="h-4 w-4" />
@@ -569,7 +635,7 @@ export function AgendaView() {
                 <DialogContent className="w-[calc(100vw-2rem)] sm:w-full sm:max-w-[500px]">
                   <DialogHeader>
                     <DialogTitle>Novo Agendamento</DialogTitle>
-                    <DialogDescription>Agende uma nova consulta para {formatDisplayDate(selectedDate)}</DialogDescription>
+                    <DialogDescription>Escolha o paciente, o dia e o horário da consulta.</DialogDescription>
                   </DialogHeader>
                   <div className="grid gap-4 py-4">
                     {formError && (
@@ -583,6 +649,10 @@ export function AgendaView() {
                         <SelectTrigger><SelectValue placeholder="Selecione um paciente" /></SelectTrigger>
                         <SelectContent>{patients?.map(p => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}</SelectContent>
                       </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="appointment-date">Dia da consulta *</Label>
+                      <Input id="appointment-date" type="date" value={newAppointment.date} onChange={(event) => setNewAppointment({ ...newAppointment, date: event.target.value })} />
                     </div>
                     <div className="grid gap-2">
                       <Label>Procedimento *</Label>
@@ -637,6 +707,30 @@ export function AgendaView() {
         </CardContent>
       </Card>
 
+      <Dialog open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>Escolher data</DialogTitle>
+            <DialogDescription>Vá diretamente a um dia ou consulte um intervalo de datas.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <Label htmlFor="agenda-jump-date">Data</Label>
+              <Input id="agenda-jump-date" type="date" value={jumpDate} onChange={event => setJumpDate(event.target.value)} />
+              <Button disabled={!jumpDate} onClick={() => { setSelectedDate(new Date(`${jumpDate}T12:00:00`)); setViewMode("week"); setDatePickerOpen(false) }}>Mostrar semana</Button>
+            </div>
+            <div className="border-t pt-4">
+              <p className="mb-3 text-sm font-medium">Consultar intervalo</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-2"><Label htmlFor="agenda-range-start">De</Label><Input id="agenda-range-start" type="date" value={rangeStart} onChange={event => setRangeStart(event.target.value)} /></div>
+                <div className="grid gap-2"><Label htmlFor="agenda-range-end">Até</Label><Input id="agenda-range-end" type="date" min={rangeStart} value={rangeEnd} onChange={event => setRangeEnd(event.target.value)} /></div>
+              </div>
+              <Button variant="outline" className="mt-3 w-full" disabled={!rangeStart || !rangeEnd || rangeStart > rangeEnd} onClick={() => { setCustomStart(rangeStart); setCustomEnd(rangeEnd); setViewMode("custom"); setDatePickerOpen(false) }}>Ver consultas</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Modal de cancelamento */}
       <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null) }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:w-full sm:max-w-[400px]">
@@ -689,9 +783,8 @@ export function AgendaView() {
 
       {/* Views */}
       {viewMode === "week" && (
-        <Card>
-          <CardHeader className="pb-3"><CardTitle className="text-base">Visão Semanal</CardTitle></CardHeader>
-          <CardContent>{WeekView()}</CardContent>
+        <Card className="overflow-hidden">
+          <CardContent className="p-0">{WeekView()}</CardContent>
         </Card>
       )}
 
@@ -702,9 +795,11 @@ export function AgendaView() {
         </Card>
       )}
 
+      {viewMode === "custom" && <Card><CardHeader><CardTitle className="text-base">Consultas do período</CardTitle></CardHeader><CardContent className="space-y-2">{customStart > customEnd ? <p>Escolha uma data final igual ou posterior à inicial.</p> : customAppointments.length ? customAppointments.map(appt => <div key={appt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"><div><strong>{appt.date.split("-").reverse().join("/")} · {formatTime(appt.time)}</strong><p>{appt.patient?.full_name || "Paciente"} · {appt.doctor_name}</p></div><Button size="sm" variant="outline" onClick={() => { setSelectedDate(new Date(`${appt.date}T12:00:00`)); setViewMode("day") }}>Ver dia</Button></div>) : <p className="text-muted-foreground">Nenhuma consulta neste período.</p>}</CardContent></Card>}
+
       {viewMode === "day" && (
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
+        <div>
+          <div>
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -722,7 +817,7 @@ export function AgendaView() {
                 ) : appointmentsList.length === 0 ? (
                   <div className="text-center py-8 px-4">
                     <p className="text-muted-foreground">Nenhuma consulta agendada para este dia</p>
-                    <Button className="mt-4 bg-transparent" variant="outline" onClick={() => setIsDialogOpen(true)}>
+                    <Button className="mt-4 bg-transparent" variant="outline" onClick={() => { setNewAppointment(current => ({ ...current, date: dateString })); setIsDialogOpen(true) }}>
                       <Plus className="h-4 w-4 mr-2" />Agendar Consulta
                     </Button>
                   </div>
@@ -756,44 +851,6 @@ export function AgendaView() {
             </Card>
           </div>
 
-          <div className="space-y-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-3">
-                <CardTitle className="text-base">Estatísticas do Dia</CardTitle>
-                <Link href="/relatorios" className="text-xs text-primary hover:underline">Ver relatório →</Link>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Taxa de Ocupação</span>
-                  <span className={`text-sm font-semibold ${occupancyRate > 100 ? "text-orange-500" : "text-foreground"}`}>
-                    {occupancyRate}%{occupancyRate > 100 ? " ⚠️" : ""}
-                  </span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div className={`h-full transition-all ${occupancyRate > 100 ? "bg-orange-500" : "bg-success"}`}
-                    style={{ width: `${occupancyWidth}%` }} />
-                </div>
-                <div className="pt-2 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Total de Consultas</span>
-                    <span className="text-sm font-semibold">{appointmentsList.length}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Confirmadas</span>
-                    <Badge className="bg-success/10 text-success">{confirmedCount}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Pendentes</span>
-                    <Badge className="bg-warning/10 text-warning">{pendingCount}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Canceladas/Falta</span>
-                    <Badge className="bg-red-100 text-red-700">{cancelledCount}</Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
         </div>
       )}
     </div>

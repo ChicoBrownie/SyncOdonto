@@ -10,7 +10,7 @@ const fixture = http.createServer((request, response) => {
   response.end(JSON.stringify(request.url?.startsWith("/auth/v1/user") ? user : []))
 })
 fixture.listen(54399, "127.0.0.1")
-const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", "3100"], {
+const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--webpack", "--hostname", "127.0.0.1", "--port", "3100"], {
   stdio: "inherit", env: { ...process.env, SYNCODONTO_TEST_BUILD: "1", NEXT_TELEMETRY_DISABLED: "1", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54399", NEXT_PUBLIC_SUPABASE_ANON_KEY: "synthetic-test-key", SUPABASE_SERVICE_ROLE_KEY: "synthetic-test-service-key" }, windowsHide: true,
 })
 child.on("exit", code => { fixture.close(); process.exit(code || 0) })

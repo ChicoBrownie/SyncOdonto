@@ -4,6 +4,7 @@ import { shouldCreateFinancialPending, validateAppointmentTransition } from "./l
 describe("ciclo da consulta e lançamento financeiro", () => {
   it("permite iniciar somente consultas disponíveis", () => {
     expect(validateAppointmentTransition("Confirmada", "Em Andamento")).toBeNull()
+    expect(validateAppointmentTransition("Atrasado", "Em Andamento")).toBeNull()
     expect(validateAppointmentTransition("Cancelada", "Em Andamento")).toContain("não está disponível")
   })
 

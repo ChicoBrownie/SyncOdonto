@@ -1,4 +1,4 @@
-const STARTABLE_STATUSES = new Set(["Pendente", "Confirmada", "Aguardando"])
+const STARTABLE_STATUSES = new Set(["Pendente", "Confirmada", "Aguardando", "Atrasado"])
 
 export function validateAppointmentTransition(previousStatus: string, nextStatus?: string) {
   if (!nextStatus || nextStatus === previousStatus) return null

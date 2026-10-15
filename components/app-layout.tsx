@@ -19,7 +19,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const normalViewportHeight = useRef(0)
   const router = useRouter()
   const pathname = usePathname()
-  const area = pathname.startsWith("/prontuario") ? "records" : pathname === "/agenda" ? "agenda" : pathname === "/pacientes" ? "patients" : pathname === "/odontograma" || pathname === "/mapa-odontologico" ? "chart" : pathname === "/financeiro" ? "finance" : null
+  const area = pathname.startsWith("/prontuario") ? "records" : pathname === "/agenda" || pathname === "/" ? "agenda" : pathname === "/pacientes" ? "patients" : pathname === "/odontograma" || pathname === "/mapa-odontologico" ? "chart" : pathname === "/financeiro" ? "finance" : null
 
   useEffect(() => {
     const viewport = window.visualViewport
@@ -55,7 +55,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }, [keyboardHeight])
 
   return (
-    <SWRConfig value={swrConfig}><div data-clinical={Boolean(area || pathname.startsWith("/atendimento"))} data-keyboard-open={keyboardHeight !== null} style={keyboardHeight === null ? undefined : { height: keyboardHeight }} className="app-shell flex h-dvh overflow-hidden bg-background" onClickCapture={event => {
+    <SWRConfig value={swrConfig}><div data-clinical={Boolean(area || pathname.startsWith("/atendimento"))} data-keyboard-open={keyboardHeight !== null} style={keyboardHeight === null ? undefined : { height: keyboardHeight }} className="app-shell relative flex h-dvh overflow-hidden bg-background" onClickCapture={event => {
       const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[href]")
       if (!anchor || anchor.target === "_blank" || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
       const url = new URL(anchor.href, window.location.href)
@@ -77,10 +77,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <EncounterGlobalControls />
         <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
-          <div data-guide="clinical-main" className="container mx-auto min-w-0 p-4 lg:p-6">{area && <div className="mb-3 flex justify-end"><ContextualHelp key={area} area={area} steps={[
+          <div data-guide="clinical-main" className={`container mx-auto min-w-0 px-4 pb-4 lg:p-6 ${area === "agenda" ? "pt-4" : "pt-14"}`}>{area && <ContextualHelp key={area} area={area} steps={[
             { selector: "[data-guide='encounter-entry']", title: "Comece ou retome aqui", description: "Iniciar atendimento reúne as etapas clínicas com rascunho automático. Retomar atendimento recupera seus campos salvos, mesmo depois de fechar o navegador." },
             { selector: "[data-guide='clinical-main']", title: area === "finance" ? "Confira a cobrança" : area === "agenda" ? "Escolha a consulta" : area === "patients" ? "Localize a pessoa" : "Consulte o histórico clínico", description: area === "finance" ? "A consulta concluída cria uma única pendência. Confira o valor e confirme o recebimento nos controles financeiros existentes." : area === "agenda" ? "O botão Iniciar abre o atendimento e reaproveita esta consulta. Confirme o início antes de registrar os procedimentos." : area === "patients" ? "Busque por nome ou CPF e confira o cadastro. Use Iniciar atendimento para cadastro rápido e etapas clínicas com salvamento automático." : "O prontuário reúne saúde, dentes e exames. Para novos registros com rascunho e orçamento conectado, abra Iniciar atendimento e selecione este paciente." },
-          ]} /></div>}{children}</div>
+          ]} />}{children}</div>
         </main>
         <ClinicalMobileNav />
         <Toaster position="top-center" richColors closeButton />
