@@ -4,11 +4,11 @@ import { encounterPayloadSchema, emptyPayload, steps } from "@/lib/encounters/mo
 import { apiError, databaseError, draftColumns, encounterContext, readJson } from "@/lib/encounters/server"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
 
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   const context = await encounterContext()
   if (context.error) return context.error
   const { supabase, ownerId, user } = context
-  const requestedOffset = request ? Number(new URL(request.url).searchParams.get("offset") || 0) : 0
+  const requestedOffset = Number(new URL(request.url).searchParams.get("offset") || 0)
   if (!Number.isSafeInteger(requestedOffset) || requestedOffset < 0) return NextResponse.json({ error: "Página inválida." }, { status: 400 })
   const { data, error, count } = await supabase.from("encounter_drafts")
     .select("id, patient_id, appointment_id, step, revision, updated_at, patient:patients(id, full_name)", { count: "exact" })
@@ -33,6 +33,13 @@ export async function POST(request: Request) {
     // Reuse an unfinished encounter rather than creating another one for the same patient.
     if (body.patient_id) {
       const { data, error } = await supabase.from("encounter_drafts").select(draftColumns).eq("clinic_id", ownerId).eq("actor_user_id", user.id).eq("patient_id", body.patient_id).eq("status", "active").maybeSingle()
+      if (error) return databaseError(error)
+      if (data) return NextResponse.json({ data })
+    } else {
+      // Reopen the newest unfinished registration instead of accumulating empty drafts.
+      const { data, error } = await supabase.from("encounter_drafts").select(draftColumns)
+        .eq("clinic_id", ownerId).eq("actor_user_id", user.id).eq("status", "active")
+        .is("patient_id", null).order("updated_at", { ascending: false }).limit(1).maybeSingle()
       if (error) return databaseError(error)
       if (data) return NextResponse.json({ data })
     }

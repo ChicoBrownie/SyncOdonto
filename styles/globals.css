@@ -123,3 +123,35 @@
     @apply bg-background text-foreground;
   }
 }
+
+  .clinical-help-button {
+    position: fixed;
+    left: 1rem;
+    right: auto;
+    bottom: calc(5.75rem + env(safe-area-inset-bottom));
+    z-index: 65;
+    display: grid;
+    place-items: center;
+    width: 4rem;
+    height: 4rem;
+    padding: 0;
+    border-radius: 9999px;
+    border: 3px solid #153a5b;
+    background: #079c9c;
+    color: white;
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1;
+    box-shadow: 0 6px 20px rgb(6 47 64 / 0.28);
+  }
+  .clinical-help-button:hover { background: #087f83; border-color: #153a5b; color: white; }
+  .clinical-help-button:focus-visible { outline: 3px solid #079c9c; outline-offset: 3px; }
+  .clinical-help-button--encounter { bottom: calc(10.5rem + env(safe-area-inset-bottom)); }
+  @media (min-width: 1024px) { .clinical-help-button, .clinical-help-button--encounter { bottom: 2rem; left: 17rem; } }
+@media (max-width: 1023px) {
+  .app-shell[data-keyboard-open="true"] .clinical-mobile-nav,
+  .app-shell[data-keyboard-open="true"] .encounter-actions { display: none; }
+  body:has(.app-shell[data-keyboard-open="true"]) .clinical-help-button { bottom: 0.75rem; }
+  .encounter-editor input,
+  .encounter-editor textarea { scroll-margin-bottom: 7rem; }
+}

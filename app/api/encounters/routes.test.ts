@@ -13,10 +13,11 @@ const id = "55555555-5555-4555-8555-555555555555"
 const clinic = "11111111-1111-4111-8111-111111111111"
 const actor = "22222222-2222-4222-8222-222222222222"
 const params = { params: Promise.resolve({ id }) }
+const listRequest = () => new Request("http://localhost/api/encounters")
 const draft = { id, clinic_id: clinic, actor_user_id: actor, patient_id: "44444444-4444-4444-8444-444444444444", appointment_id: "66666666-6666-4666-8666-666666666666", revision: 7, payload: emptyPayload(), status: "active", signed_document_id: null }
 function client(value: unknown = draft) {
   const query: any = { maybeSingle: vi.fn().mockResolvedValue({ data: value, error: null }) }
-  for (const method of ["select", "eq", "order", "limit", "range", "upsert"]) query[method] = vi.fn().mockReturnValue(query)
+  for (const method of ["select", "eq", "is", "order", "limit", "range", "upsert"]) query[method] = vi.fn().mockReturnValue(query)
   query.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: value, error: null }).then(resolve)
   const rpc = vi.fn().mockResolvedValue({ data: draft, error: null })
   const supabase = { from: vi.fn().mockReturnValue(query), rpc }
@@ -28,18 +29,27 @@ beforeEach(() => vi.clearAllMocks())
 describe("APIs de rascunho autenticadas e isoladas", () => {
   it("devolve a falha de autenticação sem consultar dados", async () => {
     mocks.context.mockResolvedValue({ error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) })
-    expect((await list()).status).toBe(401)
+    expect((await list(listRequest())).status).toBe(401)
     expect((await save(request({}), params)).status).toBe(401)
     expect((await action(request({}), params)).status).toBe(401)
   })
   it("lista apenas rascunhos ativos da clínica e do usuário", async () => {
     const { query } = client([])
-    const response = await list()
+    const response = await list(listRequest())
     expect(query.eq).toHaveBeenCalledWith("clinic_id", clinic)
     expect(query.eq).toHaveBeenCalledWith("actor_user_id", actor)
     expect(query.eq).toHaveBeenCalledWith("status", "active")
     expect(query.range).toHaveBeenCalledWith(0, 4)
     expect(response.headers.get("cache-control")).toBe("no-store")
+  })
+  it("reutiliza um cadastro sem paciente em vez de acumular outro rascunho", async () => {
+    const unfinished = { ...draft, patient_id: null, appointment_id: null }
+    const { query } = client(unfinished)
+    const response = await create(request({ id, patient_id: null, payload: emptyPayload() }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).data.id).toBe(id)
+    expect(query.is).toHaveBeenCalledWith("patient_id", null)
+    expect(query.upsert).not.toHaveBeenCalled()
   })
   it("não recupera ID fora do escopo e não faz ações nele", async () => {
     const { query, rpc } = client(null)

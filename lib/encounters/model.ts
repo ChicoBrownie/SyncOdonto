@@ -3,7 +3,7 @@ import { z } from "zod"
 export const steps = ["patient", "anamnesis", "chart", "budget", "signature", "financial"] as const
 export type EncounterStep = typeof steps[number]
 export const stepLabels: Record<EncounterStep, string> = {
-  patient: "Paciente", anamnesis: "Saúde e alertas", chart: "Odontograma",
+  patient: "Paciente", anamnesis: "Anamnese", chart: "Odontograma",
   budget: "Orçamento", signature: "Assinatura", financial: "Financeiro",
 }
 const text = (max: number) => z.string().max(max)

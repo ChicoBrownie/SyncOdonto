@@ -20,6 +20,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "sonner"
 import type { Patient } from "@/lib/types/database"
+import { capitalizeWords } from "@/lib/encounters/patient-input"
 
 const AVAILABLE_TAGS = [
   { value: "Em Tratamento", color: "bg-blue-500/10 text-blue-600" },
@@ -110,7 +111,7 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
 
     setIsSaving(true)
     try {
-      const payload: any = { ...form }
+      const payload: any = { ...form, full_name: capitalizeWords(form.full_name.trim()), address: capitalizeWords(form.address.trim()), guardian_name: capitalizeWords(form.guardian_name.trim()) }
 
       for (const key of Object.keys(payload)) {
         if (typeof payload[key] === "string" && payload[key].trim() === "") {
@@ -226,8 +227,9 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
               {/* Nome */}
               <div className="grid gap-2">
                 <Label htmlFor="full_name">Nome Completo *</Label>
-                <Input id="full_name" value={form.full_name}
+                <Input id="full_name" value={form.full_name} autoCapitalize="words"
                   onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                  onBlur={() => setForm(current => ({ ...current, full_name: capitalizeWords(current.full_name) }))}
                   placeholder="Ex: Maria Silva" />
               </div>
 
@@ -285,8 +287,9 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
                   <MapPin className="h-3.5 w-3.5" />
                   Endereço
                 </Label>
-                <Textarea id="address" value={form.address}
+                <Textarea id="address" value={form.address} autoCapitalize="words"
                   onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  onBlur={() => setForm(current => ({ ...current, address: capitalizeWords(current.address) }))}
                   placeholder="Rua, número, bairro, cidade - UF, CEP"
                   rows={2} />
               </div>

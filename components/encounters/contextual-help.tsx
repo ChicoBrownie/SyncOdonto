@@ -1,13 +1,13 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import Image from "next/image"
 import useSWR from "swr"
-import { HelpCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { encounterRequest } from "@/lib/encounters/client"
 
 export type GuideStep = { selector: string; title: string; description: string }
-export function ContextualHelp({ area, steps }: { area: string; steps: GuideStep[] }) {
+export function ContextualHelp({ area, steps, autoOpen = true }: { area: string; steps: GuideStep[]; autoOpen?: boolean }) {
   const { data, mutate } = useSWR("/api/encounter-guides", encounterRequest)
   const [index, setIndex] = useState<number | null>(null)
   const [rect, setRect] = useState<DOMRect | null>(null)
@@ -22,10 +22,10 @@ export function ContextualHelp({ area, steps }: { area: string; steps: GuideStep
   }, [])
   useEffect(() => { setIndex(null) }, [area])
   useEffect(() => {
-    if (!data || shown.current.has(area)) return
+    if (!autoOpen || !data || shown.current.has(area)) return
     shown.current.add(area)
     if (!data.data.some((visit: { area: string }) => visit.area === area)) setIndex(0)
-  }, [area, data])
+  }, [area, autoOpen, data])
   useEffect(() => {
     if (index === null || !host) return
     const target = document.querySelector<HTMLElement>(steps[index]?.selector)
@@ -54,7 +54,7 @@ export function ContextualHelp({ area, steps }: { area: string; steps: GuideStep
   }
   const step = index === null ? null : steps[index]
   return <>
-    <Button ref={help} type="button" variant="outline" className="min-h-11" onClick={() => setIndex(0)}><HelpCircle className="mr-2 h-4 w-4" />Ajuda</Button>
+    {host && createPortal(<Button ref={help} type="button" variant="outline" aria-label="Ajuda" className={`clinical-help-button ${area.startsWith("encounter-") && area !== "encounter-entry" ? "clinical-help-button--encounter" : ""}`} onClick={() => setIndex(0)}><Image src="/icone-site.svg" alt="" aria-hidden="true" width={64} height={64} unoptimized /></Button>, host)}
     {host && step && createPortal(<div className="fixed inset-0 z-[100]">
       <svg aria-hidden="true" className="absolute inset-0 h-full w-full"><defs><mask id="guide-hole"><rect width="100%" height="100%" fill="white" />{rect && <rect x={Math.max(0, rect.left - 4)} y={Math.max(0, rect.top - 4)} width={rect.width + 8} height={rect.height + 8} rx="10" fill="black" />}</mask></defs><rect width="100%" height="100%" fill="rgba(0,0,0,.72)" mask="url(#guide-hole)" />{rect && <rect x={rect.left - 4} y={rect.top - 4} width={rect.width + 8} height={rect.height + 8} rx="10" fill="none" stroke="#38bdf8" strokeWidth="3" />}</svg>
       <div ref={card} role="dialog" aria-modal="true" aria-labelledby="guide-title" aria-describedby="guide-description" tabIndex={-1} className="absolute left-3 right-3 mx-auto max-h-[45dvh] max-w-md overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl" style={{ bottom }} onKeyDown={event => {

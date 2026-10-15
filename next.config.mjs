@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  devIndicators: false,
   distDir: process.env.SYNCODONTO_TEST_BUILD === "1" ? ".mobile-test-build" : ".next",
   images: {
     unoptimized: true,
