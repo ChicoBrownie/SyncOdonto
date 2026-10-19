@@ -17,7 +17,7 @@ const listRequest = () => new Request("http://localhost/api/encounters")
 const draft = { id, clinic_id: clinic, actor_user_id: actor, patient_id: "44444444-4444-4444-8444-444444444444", appointment_id: "66666666-6666-4666-8666-666666666666", revision: 7, payload: emptyPayload(), status: "active", signed_document_id: null }
 function client(value: unknown = draft) {
   const query: any = { maybeSingle: vi.fn().mockResolvedValue({ data: value, error: null }) }
-  for (const method of ["select", "eq", "is", "order", "limit", "range", "upsert"]) query[method] = vi.fn().mockReturnValue(query)
+  for (const method of ["select", "eq", "is", "order", "limit", "range", "upsert", "update"]) query[method] = vi.fn().mockReturnValue(query)
   query.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: value, error: null }).then(resolve)
   const rpc = vi.fn().mockResolvedValue({ data: draft, error: null })
   const supabase = { from: vi.fn().mockReturnValue(query), rpc }
@@ -94,5 +94,14 @@ describe("APIs de rascunho autenticadas e isoladas", () => {
     expect((await action(request({ action: "sign", revision: 2, confirmed: true }), params)).status).toBe(200)
     expect((await action(request({ action: "complete", revision: 2, confirmed: true }), params)).status).toBe(200)
     expect(rpc).not.toHaveBeenCalled()
+  })
+  it("salva o e-mail opcional no cadastro do paciente", async () => {
+    const payload = emptyPayload()
+    payload.registration = { full_name: "Paciente Fictício", date_of_birth: "1990-01-01", cpf: "123.456.789-01", phone: "", email: "paciente@example.com" }
+    const { query } = client({ ...draft, patient_id: null, payload })
+    const response = await action(request({ action: "register", revision: 7 }), params)
+    expect(response.status).toBe(200)
+    expect(query.update).toHaveBeenCalledWith({ email: "paciente@example.com" })
+    expect(query.eq).toHaveBeenCalledWith("user_id", clinic)
   })
 })

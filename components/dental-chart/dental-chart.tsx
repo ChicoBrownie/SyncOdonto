@@ -154,7 +154,7 @@ function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, 
     : "M13 43 C15 51 15 62 20 72 C22 76 24 76 26 72 C31 62 31 51 33 43 Z"
 
   return (
-    <div className={cn("relative flex flex-col items-center", mobileExpanded ? "w-10" : "w-5 sm:w-9 lg:w-[52px]", checked && "scale-105")}>
+    <div className={cn("relative flex flex-col items-center", mobileExpanded ? "w-[clamp(27px,8.2vw,36px)]" : "w-5 sm:w-9 lg:w-[52px]", checked && "scale-105")}>
       <button
         {...holdProps("whole")}
         type="button"
@@ -162,7 +162,7 @@ function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, 
         onClick={() => select("whole")}
         className={cn(
           "mb-0.5 rounded font-semibold leading-3 focus:outline-none focus:ring-2 focus:ring-primary/50",
-          mobileExpanded ? "px-1 py-0.5 text-[10px]" : "px-0 py-0 text-[8px] sm:px-1 sm:py-0.5 sm:text-[10px] lg:px-1.5 lg:text-[11px]",
+          mobileExpanded ? "tooth-number-button flex items-end justify-center px-1 pb-0 pt-0.5 text-[10px]" : "px-0 py-0 text-[8px] sm:px-1 sm:py-0.5 sm:text-[10px] lg:px-1.5 lg:text-[11px]",
           !readOnly && "hover:bg-accent",
           selected && (selectedArea === "whole" || selectedAreas.includes("whole")) && "bg-primary text-primary-foreground",
         )}
@@ -171,7 +171,7 @@ function ToothDiagram({ number, state, indicators = {}, selected, selectedArea, 
       >
         {number}
       </button>
-      <svg viewBox="0 0 46 76" className={mobileExpanded ? "h-[66px] w-10" : "h-[33px] w-5 sm:h-14 sm:w-9 lg:h-[76px] lg:w-[46px]"} role="group" aria-label={`Dente ${number}: cinco faces da coroa e raiz`}>
+      <svg viewBox="0 0 46 76" className={mobileExpanded ? "h-auto w-full" : "h-[33px] w-5 sm:h-14 sm:w-9 lg:h-[76px] lg:w-[46px]"} role="group" aria-label={`Dente ${number}: cinco faces da coroa e raiz`}>
         <defs>
           {(["root", "vestibular", "lingual", "mesial", "distal", "occlusal"] as ToothRegion[]).map((area) => {
             const colors = indicatorColors(area)
@@ -199,7 +199,14 @@ export function DentalChart({ selectedTooth, selectedArea, selectedAreas, onArea
     ? [[18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28], [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]]
     : [[55, 54, 53, 52, 51, 61, 62, 63, 64, 65], [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]]
 
-  const mobileRows = rows.map((numbers, index) => ({ label: index === 0 ? "Arcada superior" : "Arcada inferior", numbers, upper: index === 0 }))
+  const mobileRows = rows.flatMap((numbers, index) => {
+    const arch = index === 0 ? "Arcada superior" : "Arcada inferior"
+    const midpoint = numbers.length / 2
+    return [
+      { label: `${arch} · lado direito`, numbers: numbers.slice(0, midpoint), upper: index === 0 },
+      { label: `${arch} · lado esquerdo`, numbers: numbers.slice(midpoint), upper: index === 0 },
+    ]
+  })
 
   const renderTooth = (number: number, upper: boolean, mobileExpanded = false) => (
     <ToothDiagram
@@ -221,7 +228,7 @@ export function DentalChart({ selectedTooth, selectedArea, selectedAreas, onArea
 
   return (
     <div className="pb-1 sm:pb-2">
-      <div className="space-y-3 sm:hidden">
+      <div className="space-y-[23px] sm:hidden">
         {mobileRows.map((row) => (
           <div key={row.label} className="overflow-x-auto">
             <p className="mb-1.5 text-center text-[10px] font-medium text-muted-foreground">{row.label}</p>

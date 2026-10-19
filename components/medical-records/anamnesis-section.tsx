@@ -57,13 +57,11 @@ export const QUESTION_GROUPS: { group: string; questions: string[] }[] = [
       "Tem histórico de convulsões ou epilepsia?",
       "Tem problemas renais?",
       "Há histórico de doenças na família (cardíacas, diabetes, hemorrágicas, câncer)?",
-    ],
-  },
-  {
-    group: "Hábitos",
-    questions: [
       "É fumante?",
       "Consome bebida alcoólica com frequência?",
+      "Escova os dentes pelo menos 2 vezes ao dia?",
+      "Usa fio dental regularmente?",
+      "Consome alimentos ou bebidas açucaradas com frequência?",
     ],
   },
   {
@@ -73,14 +71,6 @@ export const QUESTION_GROUPS: { group: string; questions: string[] }[] = [
       "Já fez uso de anestesia odontológica anteriormente? Houve alguma intercorrência?",
       "Sente dor, sensibilidade ou sangramento na gengiva?",
       "Range ou aperta os dentes (bruxismo)?",
-    ],
-  },
-  {
-    group: "Higiene e Dieta",
-    questions: [
-      "Escova os dentes pelo menos 2 vezes ao dia?",
-      "Usa fio dental regularmente?",
-      "Consome alimentos ou bebidas açucaradas com frequência?",
     ],
   },
 ]

@@ -21,9 +21,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { buildTreatmentIndicators } from "@/lib/dental-chart/treatment-indicators"
 import {
   CONDITIONS, CONDITION_TO_DB, DB_TO_CONDITION, DentalChart, SURFACE_LABELS,
-  type ToothArea, type ToothCondition, type ToothRegion, type ToothState, type ToothTreatmentIndicators,
+  type ToothArea, type ToothCondition, type ToothRegion, type ToothState,
 } from "./dental-chart"
 
 type CatalogItem = {
@@ -69,13 +70,12 @@ interface DentalChartViewProps {
   onTreatmentTotalChange?: (total: number) => void
   encounterForm?: EncounterPayload["chart_form"]
   onEncounterFormChange?: (form: EncounterPayload["chart_form"]) => void
+  hideHistory?: boolean
 }
 
 const emptyTooth = (): ToothState => ({ surfaces: {} })
 const today = () => new Date().toISOString().slice(0, 10)
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" })
-const plannedTreatmentColors = ["#f59e0b", "#ef4444", "#92400e"]
-
 function versionLabel(version: ChartVersion, versions: ChartVersion[]) {
   if (version.snapshot_type === "initial") return "Estado inicial"
   const closedVersions = versions.filter((item) => item.snapshot_type === "appointment_closed").reverse()
@@ -125,7 +125,7 @@ function treatmentAreas(item: Pick<TreatmentItem, "tooth_area" | "tooth_areas">)
   return areas.map((area) => SURFACE_LABELS[area]).join(", ") || "região não informada"
 }
 
-export function DentalChartView({ patientId, appointmentId, professionalName, onTreatmentTotalChange, encounterForm, onEncounterFormChange }: DentalChartViewProps) {
+export function DentalChartView({ patientId, appointmentId, professionalName, onTreatmentTotalChange, encounterForm, onEncounterFormChange, hideHistory = false }: DentalChartViewProps) {
   const [selectedTooth, setSelectedTooth] = useState<number | null>(encounterForm?.tooth || null)
   const [selectedArea, setSelectedArea] = useState<ToothArea | null>((encounterForm?.areas.at(-1) as ToothArea) || null)
   const [selectedAreas, setSelectedAreas] = useState<ToothArea[]>((encounterForm?.areas as ToothArea[]) || [])
@@ -213,26 +213,7 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
     [encounterTreatments],
   )
 
-  const treatmentIndicators = useMemo<ToothTreatmentIndicators>(() => {
-    const mapped: ToothTreatmentIndicators = {}
-    const plannedByArea = new Map<string, number>()
-    treatments
-      .filter((item) => item.status !== "cancelled" && item.tooth_number && item.tooth_area)
-      .sort((a, b) => a.created_at.localeCompare(b.created_at))
-      .forEach((item) => {
-        const tooth = item.tooth_number as number
-        const area = item.tooth_area as ToothArea
-        const key = `${tooth}-${area}`
-        const plannedPosition = plannedByArea.get(key) || 0
-        if (item.status !== "completed") plannedByArea.set(key, plannedPosition + 1)
-        const color = item.status === "completed" ? "#22c55e" : plannedTreatmentColors[Math.min(plannedPosition, plannedTreatmentColors.length - 1)]
-        if (!mapped[tooth]) mapped[tooth] = {}
-        const indicators = mapped[tooth][area] || []
-        indicators.push({ color, label: `${item.treatment_type} — ${item.status === "completed" ? "realizado" : "planejado"}` })
-        mapped[tooth][area] = indicators
-      })
-    return mapped
-  }, [treatments])
+  const treatmentIndicators = useMemo(() => buildTreatmentIndicators(treatments), [treatments])
 
   useEffect(() => onTreatmentTotalChange?.(encounterTotal), [encounterTotal, onTreatmentTotalChange])
 
@@ -538,20 +519,20 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
         </div></>
       ) : (
         <>
-          <Card className="overflow-hidden">
-            <div className="border-b px-3 py-2 sm:px-4">
+          <Card className="chart-main-card min-w-0">
+            {!hideHistory && <div className="border-b px-3 py-2 sm:px-4">
               <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-sm">
                 {selectedTooth && selectedAreas.length > 0 ? <strong>Dente {selectedTooth} · {selectedAreas.map((area) => SURFACE_LABELS[area]).join(", ")}</strong> : <span className="text-muted-foreground">Selecione uma face, raiz ou o dente inteiro.</span>}
                 {versionControls}
               </div>
               {selectedIndicators.length > 0 && <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span>Procedimentos nesta região:</span>{selectedIndicators.map((indicator, index) => <span key={`${indicator.label}-${index}`} className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: indicator.color }} />{indicator.label}</span>)}</div>}
-            </div>
+            </div>}
             <CardContent className="p-2.5 sm:p-4">
               <Tabs value={dentition} onValueChange={(value) => { setDentition(value as typeof dentition); setSelectedTooth(null); setSelectedArea(null); setSelectedAreas([]) }} className="mb-3">
                 <TabsList className="mx-auto grid w-full max-w-sm grid-cols-2"><TabsTrigger value="permanent">Permanentes</TabsTrigger><TabsTrigger value="deciduous">Decíduos</TabsTrigger></TabsList>
               </Tabs>
               <div className="mb-2 flex items-center justify-end gap-2"><Button type="button" size="icon" variant="outline" aria-label="Diminuir odontograma" disabled={chartZoom <= 70} onClick={() => setChartZoom(value => Math.max(70, value - 10))}><ZoomOut className="h-4 w-4" /></Button><span className="min-w-10 text-center text-xs">{chartZoom}%</span><Button type="button" size="icon" variant="outline" aria-label="Aumentar odontograma" disabled={chartZoom >= 150} onClick={() => setChartZoom(value => Math.min(150, value + 10))}><ZoomIn className="h-4 w-4" /></Button></div>
-              <div className="overflow-auto">{isLoading ? <div className="flex h-56 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div> : <div style={{ zoom: chartZoom / 100 }}><DentalChart selectedTooth={selectedTooth} selectedArea={selectedArea} selectedAreas={selectedAreas} onAreaSelect={selectArea} toothData={toothData} treatmentIndicators={treatmentIndicators} dentition={dentition} /></div>}</div>
+              <div data-guide="chart-diagram" className="min-w-0 overflow-x-auto overscroll-x-contain" role="region" aria-label="Odontograma, deslize para ver todos os dentes" tabIndex={0}>{isLoading ? <div className="flex h-56 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div> : <div style={{ zoom: chartZoom / 100 }}><DentalChart selectedTooth={selectedTooth} selectedArea={selectedArea} selectedAreas={selectedAreas} onAreaSelect={selectArea} toothData={toothData} treatmentIndicators={treatmentIndicators} dentition={dentition} /></div>}</div>
               <p className="mt-2 text-center text-xs text-muted-foreground">Toque nas faces do mesmo dente para selecionar várias regiões.</p>
               <p className="mt-3 text-center text-xs text-muted-foreground">{savingTooth ? `Salvando dente ${savingTooth}...` : `${registeredCount} dente${registeredCount === 1 ? "" : "s"} com registro clínico`}</p>
             </CardContent>

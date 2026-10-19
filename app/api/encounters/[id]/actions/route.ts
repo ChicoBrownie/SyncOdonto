@@ -42,7 +42,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const input: Record<string, unknown> = {}
     if (body.action === "choose_patient") input.patient_id = z.string().uuid().parse(body.patient_id)
     if (body.action === "register" && !draft.patient_id) {
-      patientInputSchema.extend({ date_of_birth: z.string().date(), cpf: z.string().regex(/^\d{11}$|^\d{3}\.\d{3}\.\d{3}-\d{2}$/) }).parse(payload.registration)
+      patientInputSchema.extend({ date_of_birth: z.string().date(), cpf: z.string().regex(/^\d{11}$|^\d{3}\.\d{3}\.\d{3}-\d{2}$/) }).parse({ ...payload.registration, email: payload.registration.email || null })
       if (payload.registration.date_of_birth > new Date().toISOString().slice(0, 10)) throw new Error("Data de nascimento não pode estar no futuro.")
     }
     if (["start", "schedule"].includes(body.action)) {
@@ -73,6 +73,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return databaseError(actionError, actionFailure[body.action])
     }
     if (!data) return NextResponse.json({ error: "Atendimento indisponível." }, { status: 404 })
+    if (body.action === "register" && payload.registration.email) {
+      const { error: emailError } = await supabase.from("patients").update({ email: payload.registration.email }).eq("id", data.patient_id).eq("user_id", ownerId)
+      if (emailError) return databaseError(emailError, "Paciente cadastrado, mas não foi possível salvar o e-mail. Tente novamente.")
+    }
     await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: `encounter.${body.action}`, entityType: "encounter_drafts", entityId: id, metadata: { revision: data.revision, patient_id: data.patient_id, document_id: data.signed_document_id } })
     return NextResponse.json({ data })
   } catch (error) { return apiError(error) }

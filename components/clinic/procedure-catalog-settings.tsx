@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import useSWR from "swr"
-import { Archive, Edit, Loader2, Plus, RotateCcw, Star } from "lucide-react"
+import { Edit, Loader2, Plus, RotateCcw, Star } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -110,7 +110,6 @@ export function ProcedureCatalogSettings() {
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="font-semibold text-foreground">Catálogo de procedimentos</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Defina os serviços e preços padrão desta clínica. Até cinco procedimentos podem ser marcados manualmente como opções rápidas.</p>
         </div>
         <Button size="sm" onClick={openCreate}><Plus className="mr-2 h-4 w-4" />Novo procedimento</Button>
       </div>
@@ -124,14 +123,13 @@ export function ProcedureCatalogSettings() {
           {items.map((item) => (
             <div key={item.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className={!item.is_active ? "opacity-60" : ""}>
-                <div className="flex flex-wrap items-center gap-2"><p className="font-medium">{item.name}</p>{item.is_favorite && <Badge variant="secondary"><Star className="mr-1 h-3 w-3 fill-current" />Opção rápida</Badge>}{!item.is_active && <Badge variant="outline">Arquivado</Badge>}</div>
-                {item.description && <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>}
+                <div className="flex flex-wrap items-center gap-2"><p className="font-medium">{item.name}</p>{!item.is_active && <Badge variant="outline">Arquivado</Badge>}</div>
                 <p className="mt-1 text-sm font-semibold text-primary">{currency.format(Number(item.default_price || 0))}</p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-1">
-                {item.is_active && <Button size="sm" variant="ghost" disabled={updatingId === item.id || (!item.is_favorite && favoriteCount >= 5)} onClick={() => patchItem(item, { is_favorite: !item.is_favorite }, item.is_favorite ? "Removido das opções rápidas." : "Adicionado às opções rápidas.")}><Star className="mr-1 h-4 w-4" />{item.is_favorite ? "Desafixar" : "Destacar"}</Button>}
+                {item.is_active && <Button size="sm" variant="ghost" disabled={updatingId === item.id || (!item.is_favorite && favoriteCount >= 5)} onClick={() => patchItem(item, { is_favorite: !item.is_favorite }, item.is_favorite ? "Removido das opções rápidas." : "Adicionado às opções rápidas.")}><Star className={`mr-1 h-4 w-4 ${item.is_favorite ? "fill-current" : ""}`} />{item.is_favorite ? "Desafixar" : "Destacar"}</Button>}
                 {item.is_active && <Button size="sm" variant="ghost" onClick={() => openEdit(item)}><Edit className="mr-1 h-4 w-4" />Editar</Button>}
-                {item.is_active ? <Button size="sm" variant="ghost" disabled={updatingId === item.id} onClick={() => patchItem(item, { is_active: false }, "Procedimento arquivado.")}><Archive className="mr-1 h-4 w-4" />Arquivar</Button> : <Button size="sm" variant="ghost" disabled={updatingId === item.id} onClick={() => patchItem(item, { is_active: true }, "Procedimento reativado.")}><RotateCcw className="mr-1 h-4 w-4" />Reativar</Button>}
+                {!item.is_active && <Button size="sm" variant="ghost" disabled={updatingId === item.id} onClick={() => patchItem(item, { is_active: true }, "Procedimento reativado.")}><RotateCcw className="mr-1 h-4 w-4" />Reativar</Button>}
               </div>
             </div>
           ))}

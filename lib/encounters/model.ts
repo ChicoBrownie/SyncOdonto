@@ -13,7 +13,7 @@ export const budgetItemSchema = z.object({
   discount: z.number().finite().min(0).max(100_000_000),
 }).strict()
 export const encounterPayloadSchema = z.object({
-  registration: z.object({ full_name: text(160), date_of_birth: text(10), cpf: text(14), phone: text(20) }).strict(),
+  registration: z.object({ full_name: text(160), date_of_birth: text(10), cpf: text(14), phone: text(20), email: z.string().trim().max(254).email().or(z.literal("")).default("") }).strict(),
   scheduling: z.boolean(),
   appointment_choice: z.string().uuid().nullable(),
   appointment: z.object({ doctor_name: text(160), date: text(10), time: text(8), duration_minutes: z.number().int().min(5).max(720) }).strict(),
@@ -37,7 +37,7 @@ export type EncounterDraft = {
 }
 export function emptyPayload(): EncounterPayload {
   return {
-    registration: { full_name: "", date_of_birth: "", cpf: "", phone: "" },
+    registration: { full_name: "", date_of_birth: "", cpf: "", phone: "", email: "" },
     scheduling: false,
     appointment_choice: null,
     appointment: { doctor_name: "", date: "", time: "", duration_minutes: 60 },
@@ -49,10 +49,44 @@ export function emptyPayload(): EncounterPayload {
 export function budgetTotal(items: BudgetItem[]) {
   return Math.round(items.reduce((sum, item) => sum + Math.max(0, item.unitValue - item.discount), 0) * 100) / 100
 }
+
+const budgetAreaLabels: Record<string, string> = {
+  mesial: "Mesial", vestibular: "Vestibular", occlusal: "Oclusal / incisal",
+  distal: "Distal", lingual: "Lingual / palatina", root: "Raiz", whole: "Dente inteiro",
+}
+const completeToothAreas = ["mesial", "vestibular", "occlusal", "distal", "lingual", "root"]
+
+export function formatBudgetRegion(region: string) {
+  const match = /^(Dente\s+\d+)\s*(?:·\s*(.*))?$/i.exec(region.trim())
+  if (!match || !match[2]) return region
+  const areas = match[2].split(",").map(value => value.trim()).filter(Boolean)
+  const normalized = areas.map(value => {
+    const area = value.toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s*\/\s*/g, "/")
+    return ({ "oclusal/incisal": "occlusal", oclusal: "occlusal", "lingual/palatina": "lingual", raiz: "root", "dente inteiro": "whole" } as Record<string, string>)[area] || area
+  })
+  if (normalized.some(area => !budgetAreaLabels[area])) return region
+  if (normalized.includes("whole") || completeToothAreas.every(area => normalized.includes(area))) return match[1]
+  return `${match[1]} · ${normalized.map(area => budgetAreaLabels[area]).join(", ")}`
+}
+
+export function applyBudgetGroupDiscount(items: BudgetItem[], indices: number[], amount: number): BudgetItem[] {
+  const selected = new Set(indices)
+  const totalCents = indices.reduce((sum, index) => sum + Math.max(0, Math.round(items[index].unitValue * 100)), 0)
+  let remainingDiscount = Math.min(totalCents, Math.max(0, Math.round((Number.isFinite(amount) ? amount : 0) * 100)))
+  let remainingValue = totalCents
+  return items.map((item, index) => {
+    if (!selected.has(index)) return item
+    const valueCents = Math.max(0, Math.round(item.unitValue * 100))
+    const discountCents = remainingValue ? Math.min(valueCents, Math.round(remainingDiscount * valueCents / remainingValue)) : 0
+    remainingDiscount -= discountCents
+    remainingValue -= valueCents
+    return { ...item, discount: discountCents / 100 }
+  })
+}
 export function budgetContent(name: string, payload: EncounterPayload) {
   const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
   return ["PROPOSTA DE TRATAMENTO", `Paciente: ${name}`,
-    ...payload.budget.items.map((item, i) => `${i + 1}. ${item.procedure} | ${item.region || "Geral"} | ${money(item.unitValue)} | desconto ${money(item.discount)}`),
+    ...payload.budget.items.map((item, i) => `${i + 1}. ${item.procedure} | ${formatBudgetRegion(item.region) || "Geral"} | ${money(item.unitValue)} | desconto ${money(item.discount)}`),
     `Total: ${money(budgetTotal(payload.budget.items))}`, `Pagamento previsto: ${payload.budget.payment_method}`,
     "Declaro que li e concordo com esta proposta de tratamento e seus valores.",
   ].join("\n")
@@ -61,7 +95,7 @@ export function mergeTreatments(items: BudgetItem[], treatments: { id: string; t
   const included = new Set(items.map((item) => item.source_id))
   return [...items, ...treatments.filter((item) => item.status !== "cancelled" && !included.has(item.id)).map((item) => ({
     source_id: item.id, procedure: item.treatment_type,
-    region: [item.tooth_number ? `Dente ${item.tooth_number}` : "Geral", (item.tooth_areas || (item.tooth_area ? [item.tooth_area] : [])).join(", ")].filter(Boolean).join(" · "),
+    region: formatBudgetRegion([item.tooth_number ? `Dente ${item.tooth_number}` : "Geral", (item.tooth_areas || (item.tooth_area ? [item.tooth_area] : [])).join(", ")].filter(Boolean).join(" · ")),
     unitValue: Number(item.cost || 0), discount: 0,
   }))]
 }
