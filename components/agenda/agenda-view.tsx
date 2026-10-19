@@ -28,7 +28,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import useSWR from "swr"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 
 const DEFAULT_CLOSING_HOUR = 18
 
@@ -151,8 +151,17 @@ const STATUS_OPTIONS = [
 
 export function AgendaView() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const targetAppointmentId = searchParams.get("appointmentId")
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<"day" | "week" | "month" | "custom">("week")
+  useEffect(() => {
+    const targetDate = searchParams.get("date")
+    if (targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+      setSelectedDate(new Date(`${targetDate}T12:00:00`))
+      setViewMode("day")
+    }
+  }, [searchParams])
   const [customStart, setCustomStart] = useState(toLocalDateString(new Date()))
   const [customEnd, setCustomEnd] = useState(toLocalDateString(new Date()))
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -182,6 +191,15 @@ export function AgendaView() {
   const todayString = toLocalDateString(new Date())
   const { appointments, isLoading, error, mutate } = useAppointments({ date: dateString })
   const appointmentsList: any[] = (appointments as any[]) || []
+  useEffect(() => {
+    if (!targetAppointmentId || isLoading || !appointmentsList.some(appt => appt.id === targetAppointmentId)) return
+    const frame = requestAnimationFrame(() => {
+      const matches = document.querySelectorAll<HTMLElement>(`[data-agenda-appointment="${CSS.escape(targetAppointmentId)}"]`)
+      const visible = [...matches].find(node => node.getClientRects().length > 0)
+      visible?.scrollIntoView({ block: "center", behavior: "smooth" })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [appointmentsList, isLoading, targetAppointmentId])
 
   const weekDays = getWeekDays(selectedDate)
   const weekStart = toLocalDateString(weekDays[0])
@@ -375,8 +393,9 @@ export function AgendaView() {
     const workingStart = Number(settingsRes?.data?.working_hours?.start?.split(":")[0] ?? 7)
     const firstHour = Math.max(0, Math.min(workingStart, ...weekAppointments.map(a => Number(a.time?.slice(0, 2) || 7))))
     const lastHour = Math.min(24, Math.max(closingHour, ...weekAppointments.map(a => Math.ceil((timeToMinutes(a.time) + (Number(a.duration_minutes) || 60)) / 60))))
-    const slotHeight = 48
-    const slots = Array.from({ length: Math.max(1, (lastHour - firstHour) * 2) }, (_, i) => formatMinutes(firstHour * 60 + i * 30))
+    const slotMinutes = 15
+    const slotHeight = 24
+    const slots = Array.from({ length: Math.max(1, (lastHour - firstHour) * 60 / slotMinutes) }, (_, i) => formatMinutes(firstHour * 60 + i * slotMinutes))
     const gridHeight = slots.length * slotHeight
 
     return <div className="overflow-x-auto overscroll-x-contain" aria-label="Agenda semanal">
@@ -384,7 +403,7 @@ export function AgendaView() {
         <div className="sticky left-0 z-20 w-12 shrink-0 bg-card shadow-[1px_0_0_0_var(--border)]">
           <div className="h-12 border-b border-border bg-card" />
           <div className="relative" style={{ height: gridHeight }}>
-            {slots.map((slot, index) => <span key={slot} className={`absolute right-2 text-[11px] text-muted-foreground ${index % 2 ? "opacity-70" : "font-medium"}`} style={{ top: index * slotHeight - 7 }}>{slot}</span>)}
+            {slots.map((slot, index) => <span key={slot} className={`absolute right-2 text-[11px] text-muted-foreground ${index % 4 ? "opacity-70" : "font-medium"}`} style={{ top: index * slotHeight - 7 }}>{slot}</span>)}
           </div>
         </div>
         {weekDays.map(day => {
@@ -395,16 +414,17 @@ export function AgendaView() {
               <span>{formatShortWeekday(day)}</span><span className={`grid size-7 place-items-center rounded-full ${ds === todayString ? "bg-primary text-primary-foreground" : ""}`}>{day.getDate()}</span>
             </button>
             <div className="relative" style={{ height: gridHeight }}>
-              {slots.map((slot, index) => <button key={slot} type="button" aria-label={`${day.toLocaleDateString("pt-BR")} às ${slot}`} onDragOver={event => { if (movingId) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (movingId) void moveAppointment(movingId, ds, slot) }} onClick={() => { if (movingId) void moveAppointment(movingId, ds, slot) }} className={`absolute inset-x-0 border-t text-left transition-colors ${index % 2 ? "border-border/35" : "border-border/70"} ${movingId ? "cursor-pointer hover:bg-primary/10" : "hover:bg-muted/40"}`} style={{ top: index * slotHeight, height: slotHeight }} />)}
+              {slots.map((slot, index) => <button key={slot} type="button" aria-label={`${day.toLocaleDateString("pt-BR")} às ${slot}`} onDragOver={event => { if (movingId) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (movingId) void moveAppointment(movingId, ds, slot) }} onClick={() => { if (movingId) void moveAppointment(movingId, ds, slot) }} className={`absolute inset-x-0 border-t text-left transition-colors ${index % 4 ? "border-border/35" : "border-border/70"} ${movingId ? "cursor-pointer hover:bg-primary/10" : "hover:bg-muted/40"}`} style={{ top: index * slotHeight, height: slotHeight }} />)}
               {dayAppointments.map(({ appointment: appt, column, columns }) => {
                 const start = timeToMinutes(appt.time)
                 const duration = Math.max(15, Number(appt.duration_minutes) || 60)
                 const canMove = !["Concluída", "Cancelada", "Falta", "Em Andamento"].includes(appt.status)
                 const compact = duration < 45
+                const singleLine = duration < 30
                 const width = 100 / columns
-                return <button key={appt.id} type="button" draggable={canMove} onDragStart={event => { event.dataTransfer.effectAllowed = "move"; setMovingId(appt.id) }} onDragEnd={() => setMovingId(null)} onClick={() => { if (canMove) setMovingId(movingId === appt.id ? null : appt.id) }} aria-label={`${appt.patient?.full_name || "Paciente"}, ${formatTime(appt.time)} a ${formatMinutes(start + duration)}, ${appt.doctor_name || "dentista não informado"}. ${appt.status || ""}`} title={`${appt.patient?.full_name || "Paciente"} · ${formatTime(appt.time)}–${formatMinutes(start + duration)} · ${appt.doctor_name || ""}`} className={`absolute z-[1] overflow-hidden rounded-md border-l-4 px-2 py-1.5 text-left shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-primary ${appointmentColor(appt.doctor_name || appt.patient?.full_name || "")} ${movingId === appt.id ? "ring-2 ring-primary ring-offset-1" : ""} ${["Cancelada", "Falta"].includes(appt.status) ? "opacity-50" : ""}`} style={{ top: Math.max(0, ((start - firstHour * 60) / 30) * slotHeight + 2), height: Math.max(35, duration / 30 * slotHeight - 4), left: `calc(${column * width}% + 4px)`, width: `calc(${width}% - 8px)` }}>
-                  <span className="block truncate text-[11px] font-semibold leading-tight">{formatTime(appt.time)}–{formatMinutes(start + duration)}</span>
-                  <strong className={`block truncate text-xs leading-tight ${compact ? "mt-0.5" : "mt-1"}`}>{appt.patient?.full_name || "Paciente"}</strong>
+                return <button key={appt.id} type="button" draggable={canMove} onDragStart={event => { event.dataTransfer.effectAllowed = "move"; setMovingId(appt.id) }} onDragEnd={() => setMovingId(null)} onClick={() => { if (canMove) setMovingId(movingId === appt.id ? null : appt.id) }} aria-label={`${appt.patient?.full_name || "Paciente"}, ${formatTime(appt.time)} a ${formatMinutes(start + duration)}, ${appt.doctor_name || "dentista não informado"}. ${appt.status || ""}`} title={`${appt.patient?.full_name || "Paciente"} · ${formatTime(appt.time)}–${formatMinutes(start + duration)} · ${appt.doctor_name || ""}`} className={`absolute z-[1] overflow-hidden rounded-md border-l-4 px-2 ${singleLine ? "py-0.5" : "py-1.5"} text-left shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-primary ${appointmentColor(appt.doctor_name || appt.patient?.full_name || "")} ${movingId === appt.id ? "ring-2 ring-primary ring-offset-1" : ""} ${["Cancelada", "Falta"].includes(appt.status) ? "opacity-50" : ""}`} style={{ top: Math.max(0, ((start - firstHour * 60) / slotMinutes) * slotHeight + 2), height: Math.max(singleLine ? 20 : 35, duration / slotMinutes * slotHeight - 4), left: `calc(${column * width}% + 4px)`, width: `calc(${width}% - 8px)` }}>
+                  {!singleLine && <span className="block truncate text-[11px] font-semibold leading-tight">{formatTime(appt.time)}–{formatMinutes(start + duration)}</span>}
+                  <strong className={`block truncate text-xs leading-tight ${singleLine ? "" : compact ? "mt-0.5" : "mt-1"}`}>{appt.patient?.full_name || "Paciente"}</strong>
                   {!compact && <span className="mt-1 block truncate text-[11px] leading-tight opacity-80">{appt.doctor_name || appt.procedure_type || "Consulta"}</span>}
                 </button>
               })}
@@ -540,7 +560,7 @@ export function AgendaView() {
     const rowBg = isLate ? "bg-yellow-50 dark:bg-yellow-950/20" : ""
 
     return (
-      <tr className={`border-b border-border transition-colors ${rowBg}`}>
+      <tr data-agenda-appointment={appointment.id} className={`border-b border-border transition-colors ${rowBg} ${targetAppointmentId === appointment.id ? "bg-primary/10 outline outline-2 outline-primary" : ""}`}>
         <td className="py-3 px-4 text-sm font-medium text-foreground whitespace-nowrap">
           <div className="flex items-center gap-1">
             {formatTime(appointment.time)}
@@ -569,7 +589,7 @@ export function AgendaView() {
   const AppointmentCard = ({ appointment }: { appointment: any }) => {
     const { isLate } = useAppointmentState(appointment)
     return (
-      <Card className={isLate ? "border-yellow-300 bg-yellow-50 dark:bg-yellow-950/20" : ""}>
+      <Card data-agenda-appointment={appointment.id} className={`${isLate ? "border-yellow-300 bg-yellow-50 dark:bg-yellow-950/20" : ""} ${targetAppointmentId === appointment.id ? "border-primary bg-primary/10 ring-2 ring-primary" : ""}`}>
         <CardContent className="p-4 space-y-3">
           <div className="flex items-start justify-between gap-2">
             <div>
