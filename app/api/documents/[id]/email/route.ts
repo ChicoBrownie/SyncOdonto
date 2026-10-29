@@ -24,7 +24,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
   const { data: document, error } = await supabase
     .from("documents")
-    .select("id, title, description, storage_path, file_url, patient:patients(id, full_name, email)")
+    .select("id, title, description, document_type, storage_path, file_url, patient:patients(id, full_name, email)")
     .eq("id", id)
     .eq("user_id", ownerId)
     .maybeSingle()
@@ -44,14 +44,15 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
   const patientName = escapeHtml(patient.full_name || "Paciente")
   const title = escapeHtml(document.title || "Documento odontológico")
+  const isBudget = document.document_type === "budget"
   const { error: emailError } = await resend.emails.send({
     from: process.env.EMAIL_FROM || "SyncOdonto <onboarding@resend.dev>",
     to: patient.email,
     subject: `${document.title || "Documento odontológico"} — SyncOdonto`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#172033"><h2>${title}</h2><p>Olá, ${patientName}.</p><p>Sua clínica disponibilizou um arquivo do seu atendimento odontológico.</p><p style="margin:28px 0"><a href="${fileUrl}" style="background:#0ea5e9;color:white;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:700">Visualizar arquivo</a></p><p style="font-size:13px;color:#64748b">Por segurança, este link expira em 24 horas. Não encaminhe este e-mail a terceiros.</p><p style="font-size:12px;color:#64748b">Mensagem enviada pelo SyncOdonto.</p></div>`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#172033"><h2>${title}</h2><p>Olá, ${patientName}.</p><p>${isBudget ? "Sua clínica preparou um orçamento odontológico para você." : "Sua clínica disponibilizou um arquivo do seu atendimento odontológico."}</p><p style="margin:28px 0"><a href="${fileUrl}" style="background:#087f82;color:white;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:700">${isBudget ? "Abrir orçamento" : "Visualizar arquivo"}</a></p><p style="font-size:13px;color:#64748b">Por segurança, este link expira em 24 horas. Não encaminhe este e-mail a terceiros.</p><p style="font-size:12px;color:#64748b">Mensagem enviada pelo SyncOdonto.</p></div>`,
   })
   if (emailError) return NextResponse.json({ error: `Falha no envio: ${emailError.message}` }, { status: 502 })
 
   await recordAuditEvent({ supabase, clinicId: ownerId, actorUserId: user.id, action: "document.emailed", entityType: "documents", entityId: id, metadata: { patient_id: patient.id } })
-  return NextResponse.json({ message: `Exame enviado para ${patient.email}.` })
+  return NextResponse.json({ message: `${isBudget ? "Orçamento" : "Documento"} enviado para ${patient.email}.` })
 }

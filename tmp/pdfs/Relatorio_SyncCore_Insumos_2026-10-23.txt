@@ -1,0 +1,452 @@
+===== PAGE 1 =====\n23/10/2026 · fontes e limites identificados no texto
+Página 1
+RELATÓRIO DE TRABALHO • CORTE DE 23/10/2026
+SyncCore Insumos
+Trajetória, fatos confirmados, decisões, limites e próximos testes
+Estado em uma frase: há um protótipo demonstrável que combina um recorte regulatório da Anvisa com triagem
+operacional separada, usando dados informados pelo usuário. Ainda não há integração com uma empresa, previsão
+de desabastecimento validada nem ganho econômico medido.
+Data de corte: 23/10/2026, 16h49 (Picos/Fortaleza e Brasília). Escopo: conversa e arquivos do projeto disponíveis até este horário; edital
+retificado e fontes primárias indicadas no fim. A inscrição na Prosas não foi comprovada neste material.
+Como ler o relatório
+• Confirmado: consta em documento oficial, arquivo local inspecionado ou captura enviada, com o limite da evidência
+ explicado.
+• Planejado: decisão de produto ou próximo experimento; não é funcionalidade pronta nem resultado.
+ 
+• Não verificado: depende de dados, parceiro, documento ou teste ainda não obtido.
+ 
+Mensagem central para a proposta
+Uma empresa de software para saúde pode usar dados públicos para mostrar contexto e dados operacionais autorizados
+para apontar itens que merecem conferência antes da reposição. O comprador inicial mais promissor a testar é quem
+controla muitos itens e decisões de compra — por exemplo, distribuidora ou rede hospitalar. O SUS é mercado possível e
+argumento de impacto, mas não é obrigatório ser o primeiro cliente. A hipótese de valor econômico só se torna resultado
+após piloto comparado com o processo atual.
+\n\n===== PAGE 2 =====\nSYNCCORE INSUMOS  /  RELATÓRIO DE VERIFICAÇÃO
+23/10/2026 · fontes e limites identificados no texto
+Página 2
+1. Resumo executivo e prioridades
+Situação
+Conclusão verificada ou decisão
+Concurso
+ABDI, Desafio de Inovação NIB, Temática 2: resiliência e inteligência para cadeias de insumos críticos da saúde.
+Inscrição pela Prosas até 23/10/2026, 18h de Brasília. [S1–S2]
+Empresa
+A captura enviada em 23/10 mostra emissão de CNPJ de Inova Simples com nome empresarial SyncCore Tec.
+Inova Simples (I.S.). Situação cadastral ATIVA, CNAEs efetivamente registrados e adesão ao Simples Nacional
+ainda exigem consulta ao comprovante; não foram verificados neste relatório. [U1]
+Produto inscrito
+SyncCore é a marca guarda-chuva; SyncOdonto é outro produto. Para o concurso, o foco é um único projeto de
+insumos. O edital admite uma proposta por proponente e exige anonimato no conteúdo técnico da Etapa II. [S2]
+MVP
+Quatro telas, guia contextual, 12 termos da Anvisa, importação/edição/exclusão/exportação de CSV operacional e
+fila de conferência. Os dois conjuntos ainda não são vinculados automaticamente. [L1–L3]
+Falta essencial
+Empresa anfitriã, dados reais autorizados, correspondência exata de apresentações, revisão farmacêutica, linha de
+base e medição de resultados. [L3–L4]
+Entrega do edital
+Até o corte deste relatório, não há protocolo de inscrição nem capturas dos campos da Prosas. A confirmação de
+envio é a evidência decisiva. [S2, U2]
+O que fazer primeiro
+• Confirmar no comprovante da Receita que o CNPJ está ativo e quais CNAEs constam; guardar certificado de Inova Simples
+ e comprovante.
+• Preencher a proposta na Prosas com título técnico neutro, selecionar Temática 2, declarar apenas funções existentes e
+ salvar o protocolo de envio antes das 18h. [S1–S2]
+• Preservar uma cópia datada do código, da base e das capturas do MVP que já existiam antes do encerramento; melhorias
+ posteriores não substituem esse marco. [S2, L4]
+2. Como a ideia mudou
+Etapa da conversa
+O que foi decidido ou corrigido
+Ponto de partida
+Tese ampla de monitorar vulnerabilidade dos insumos da saúde, inclusive IFA, fabricantes, país, preço, criticidade
+clínica e sinais de falta. Um plano inicial sugeria 30–50 itens e índice de sete fatores; era hipótese, não produto
+pronto.
+Leitura do edital
+A solução deve estar em validação e ter ao menos MVP/protótipo funcional. Cliente empresarial é coerente com o
+setor produtivo e com os critérios econômicos; SUS permanece como segmento e impacto. PoC premiada requer
+ambiente operacional e anuência da empresa proprietária da instalação. [S2–S3]
+Primeiro recorte
+Foi escolhido um painel reproduzível de 12 termos usando a Anvisa, por falta de chaves seguras para ligar
+compras, fábrica, país e estoque. Contagens foram rotuladas como diversidade regulatória, não disponibilidade
+comercial. [L1–L2]
+Teste operacional
+Depois da crítica de que uma planilha faria a conta simples, entraram importação por CSV, cadastro, edição,
+exclusão, validação, exportação e fila por item/local. Ainda não há histórico nem decisão registrada. [L3]
+Experiência de uso
+A tela longa foi dividida em Início, Preparar dados, Triagem e Anvisa. Um botão ? abre guia com destaque visual.
+O repositório local está alinhado ao ramo origin/main no último commit inspecionado. [L1, L5]
+3. O edital: o que realmente importa
+A proponente deve ser pessoa jurídica brasileira com CNPJ ativo, matriz no Brasil, CNAE principal ou secundário e
+atividade compatíveis com a solução. O Comunicado III confirma que CNAE secundário compatível pode bastar, desde que
+haja relação com o objeto/escopo. A situação de validação não exige número mínimo de clientes ou contratos, mas exige
+funcionamento demonstrável. [S2–S3]
+\n\n===== PAGE 3 =====\nSYNCCORE INSUMOS  /  RELATÓRIO DE VERIFICAÇÃO
+23/10/2026 · fontes e limites identificados no texto
+Página 3
+Etapa
+Regra que afeta o projeto
+Inscrição/Etapa II
+Avaliação cega; não inserir nome, logotipo, CNPJ nem URL identificadora no conteúdo técnico. Uma proposta por
+CNPJ; se houver mais de uma inscrição, vale a última. O formulário avalia clareza (peso 2), diagnóstico (3),
+desenvolvimento regional (2) e impacto social/econômico/ambiental (3), cada critério com nota 0–2. [S2]
+Etapa IV
+Pitch presencial de 5 minutos em Brasília; inovação/criatividade (3), viabilidade técnica/econômica (3), plano de
+validação (2) e escalabilidade (2). É possível detalhar, sem trocar o núcleo da solução. [S2]
+Etapa V
+Comprovação posterior de documentos e de MVP/protótipo que já existia ao fim das inscrições; o Anexo I aceita
+evidência idônea como demonstração, capturas, testes ou documentação. [S2]
+Prêmios/PoC
+Uma vencedora por temática recebe participação na Hannover Messe; as duas melhores gerais recebem R$ 50 mil
+cada para PoC. Prêmio não equivale a compra da tecnologia. A propriedade intelectual permanece com a
+proponente. [S2]
+Implicação: texto de inscrição, diagnóstico e indicadores merecem tanta atenção quanto o painel. A proposta deve
+separar: função já pronta, teste que será feito e resultado econômico apenas esperado.
+4. Proposta de produto escolhida
+Problema: equipes que compram e mantêm estoques de medicamentos precisam saber quais itens revisar primeiro.
+Cadastros, saldos, consumo, pedidos e prazos costumam estar em fontes distintas ou exigem consolidação manual. A
+gravidade clínica e as alternativas também não podem ser inferidas apenas de nomes de produtos.
+Produto: plataforma de apoio à conferência de reposição. Em sua forma alvo, receberia dados exportados do sistema
+existente, padronizaria itens/apresentações/local, compararia cobertura com prazo de reposição e mostraria por que cada
+item exige atenção. Acrescentaria contexto regulatório e de compras públicas somente quando a ligação por produto for
+validada. [L3–L4]
+Comprador a testar: distribuidoras e redes hospitalares/serviços com vários itens, locais e decisões recorrentes.
+Fabricantes, operadoras, laboratórios e SUS são hipóteses de expansão. Não há segmento comprador confirmado nem
+empresa anfitriã até este corte. A sede em Picos/PI define proximidade operacional, não prova demanda regional. [U2]
+Três camadas, com fronteira clara
+Camada
+Situação hoje
+Condição para avançar
+1. Contexto/triagem
+Contagem regulatória de 12 termos + triagem
+operacional separada, com cálculo simples e
+conferência humana.
+Item exato e apresentação revisados; chaves e
+atualização confiáveis.
+2. Sinais de iminência
+Não implementada como sistema de alerta validado.
+Dados históricos de consumo, entregas, compras e
+eventos; medir falsos alertas.
+3. Decisão e resultado
+Sem recomendação automática, acompanhamento de
+ações ou ROI medido.
+Fluxo de decisão, piloto, grupo de comparação/linha de
+base e autorização empresarial.
+O índice de vulnerabilidade 0–100 com sete componentes e pesos sugeridos nos rascunhos foi retirado do escopo do
+MVP: faltam dados e correspondências verificadas para calcular fabricante por produto, importação específica, preço
+comparável, falhas de compra e criticidade. Esses pesos nunca foram calibrados. [L2, A1]
+5. O MVP que existe em 23/10
+Inspeção dos arquivos locais encontrou quatro telas (Início, Preparar dados, Triagem, Anvisa), botão de ajuda fixo com
+sequência guiada, busca/ordenação no recorte da Anvisa e ações de importação, cadastro manual, edição, exclusão e
+exportação de itens operacionais. O site é estático; não depende de login nem de Supabase. [L1–L3]
+\n\n===== PAGE 4 =====\nSYNCCORE INSUMOS  /  RELATÓRIO DE VERIFICAÇÃO
+23/10/2026 · fontes e limites identificados no texto
+Página 4
+Função
+Fato observado
+Limite
+Anvisa
+12 termos, CNPJs detentores e registros distintos, ficha
+com empresas e exemplos; base de 13/10/2026.
+Busca textual; pode misturar apresentações/associações;
+foto datada, sem estoque comercial.
+Cenário
+Cobertura informada e prazo informado; 12 dias versus
+20 dias produz diferença de 8 dias.
+Valores do exemplo são fictícios; não é previsão de falta.
+Operação
+CSV de até 1.000 itens; valida campos, permite
+adicionar/editar/excluir, baixar CSV atualizado.
+Itens ficam na aba e somem ao recarregar; origem não é
+auditada; não há integração automática.
+Triagem
+Calcula estoque/consumo por código e local; separa
+dados antigos e incompletos; pedido aberto não vira
+estoque.
+Não conhece entrega confirmada, sazonalidade,
+substituição ou prioridade clínica.
+O arquivo operacional requer código, descrição/apresentação, local, estoque atual, consumo médio diário, prazo de
+reposição e data de atualização; pedido aberto e previsão de entrega são opcionais. Esse formato reduz redigitação se o
+cliente conseguir exportar do sistema atual. [L2]
+Conferência existente: capturas reais de 22/10 mostram o painel anterior carregado, o termo norepinefrina com 5
+detentores e 9 registros, o exemplo 12/20 e o CSV exportado. A interface de quatro telas é posterior a essas capturas; ela
+consta no código, mas não há neste conjunto uma captura final validando visualmente todas as quatro telas. O teste
+automatizado local de importação foi executado nesta revisão e falhou por esperar a frase antiga ‘Todos são fictícios’,
+enquanto a interface diz ‘Exemplo fictício’; isso não comprova defeito no cálculo, mas impede dizer que a suíte está verde. A
+sintaxe de dados_operacionais.js passou em node --check. [L3–L5]
+6. O que dizem os dados — e o que não dizem
+Anvisa: registro não é fornecimento
+O processamento local leu 228.869 linhas do arquivo de medicamentos de 13/10/2026; 85.092 linhas tinham situação
+‘Ativo’. São linhas, não 85.092 medicamentos únicos. Entre linhas ativas com número informado foram encontrados 10.326
+registros distintos. A busca dos 12 termos gerou 2.039 linhas no recorte, com repetições. O painel soma 355 associações de
+registros por termo; um registro pode entrar em mais de um termo. [S4, L1–L2]
+Termo buscado
+CNPJs detentores
+Registros distintos
+Norepinefrina
+5
+9
+Heparina
+6
+8
+Vancomicina
+6
+10
+Insulina humana
+7
+11
+Ceftriaxona
+8
+15
+Midazolam
+9
+11
+Propofol
+11
+14
+Salbutamol
+14
+17
+Furosemida
+15
+21
+Cloreto de potássio
+24
+61
+Lidocaína
+32
+55
+Amoxicilina
+34
+123
+‘Menor diversidade’ é classificação relativa inventada para esta interface (até 7 detentores; 8–14 intermediária; 15 ou mais
+maior diversidade), não selo clínico nem risco estimado. Norepinefrina pode capturar produto em associação; o nome de um
+detentor não confirma que ele fabrique, distribua ou venda o item hoje. [L1–L2]
+\n\n===== PAGE 5 =====\nSYNCCORE INSUMOS  /  RELATÓRIO DE VERIFICAÇÃO
+23/10/2026 · fontes e limites identificados no texto
+Página 5
+Compras: amostra real e pequena
+Quatro pacotes públicos do Piauí, coletados de janeiro a abril de 2026 no Medicamentos Transparentes, continham 316
+linhas de itens e 138 de resultados. Busca textual dos 12 termos achou 11 itens; somente 2 tinham resultado vinculado nos
+pacotes analisados. Em Amarante, constam amoxicilina 50 mg/ml, 3.000 frascos, R$ 3,80 por frasco, e amoxicilina 500 mg,
+80.000 comprimidos, R$ 0,31 por comprimido. São valores publicados em homologação, não entrega nem preço pago. Um
+item de lidocaína era associado a epinefrina e não é comparável a lidocaína isolada. [S5, L2]
+A ausência de resultado vinculado em nove itens não significa licitação deserta. O recorte não sustenta índice de preços,
+tendência no Piauí, ROI ou número de fornecedores disponíveis. [L2]
+Fabricantes, importação e relevância clínica
+A tabela da Anvisa de fabricante/IFA contém empresas e países, mas não há chave validada que relacione cada linha ao
+registro e apresentação do painel. Cinquenta e nove dos 89 CNPJs detentores do recorte também apareceram nessa
+tabela; isso é sobreposição de empresas, não prova do país fabricante do produto. [S4, L2]
+O Comex Stat publica importação por NCM e país; NCM é categoria comercial e pode abranger vários medicamentos. Não
+foi calculada dependência de importação por produto. A Rename 2024 orienta a oferta do SUS, mas os 12 termos ainda não
+foram conferidos item a item por substância, concentração e forma; pertencer à lista não mede gravidade da falta. [S6–S7,
+L2]
+7. O que foi desmistificado
+Afirmação inicial ou dúvida
+Conclusão útil
+‘É edital governamental e preciso vender ao
+governo.’
+Não. A ABDI organiza o concurso, mas o edital olha produtividade do setor produtivo e
+aceita empresa como proponente. Cliente privado é compatível; SUS é possível mercado e
+impacto. [S2]
+‘12 termos é insuficiente; eram 30–50.’
+12 termos bastam para demonstrar método e honestidade, mas não provam utilidade
+comercial. Ampliar só depois de escolher apresentações e validar ligações. [L2–L3]
+‘85.092 ativos são 85.092 remédios disponíveis.’
+Não: são linhas rotuladas Ativo na base regulatória; há repetição e nenhuma informação de
+estoque/entrega. [L1–L2]
+‘Cinco detentores são cinco fornecedores.’
+Não: titularidade de registro não é capacidade produtiva ou venda corrente. [S4, L2]
+‘8 dias de atenção é previsão de falta.’
+Não: é diferença entre cobertura e prazo informados num cenário, antes de considerar
+dados reais, pedidos, variação de consumo e correção do saldo. [L2–L3]
+‘Dados públicos bastam para a decisão da
+empresa.’
+Não: estoque, consumo, prazo e pedidos reais vêm do cliente ou de fonte operacional
+autorizada. [L3–L4]
+‘Uma planilha não consegue fazer isso.’
+Consegue fazer a conta simples. O software só vence se poupar trabalho, consolidar locais,
+detectar dados ruins, registrar decisões ou melhorar resultados mensurados. [L4]
+‘BNAFAR não existe / não há concorrência.’
+BNAFAR e iniciativas públicas de monitoramento existem. Cobertura e uso para este
+produto não foram validados; não prometer exclusividade. [S10]
+‘O índice de sete fatores está pronto.’
+Não: era blueprint com pesos sem validação e chaves faltantes. O MVP atual não calcula
+vulnerabilidade estrutural nem criticidade clínica. [A1, L3]
+As metodologias de EMA e USP reforçam que o problema é real e multifatorial, mas não comprovam que nosso produto
+funciona no Brasil. A USP destaca preço baixo, complexidade de fabricação, concentração geográfica e qualidade; a EMA
+usa dados adicionais e avaliação em etapas. Copiar pesos dessas fontes sem as mesmas bases seria enganoso. [S8–S9]
+8. Mercado, valor e concorrência: hipóteses testáveis
+Hospitais, distribuidores e gestores já lidam com reposição em ERP, planilha e processos de compra. Também existem
+plataformas de risco internacionais e bases brasileiras de transparência ou assistência farmacêutica. Isso demonstra uma
+necessidade institucional, não demonstra demanda pagante pela SyncCore nem superioridade frente ao que o comprador
+usa hoje. [S5, S8–S10]
+\n\n===== PAGE 6 =====\nSYNCCORE INSUMOS  /  RELATÓRIO DE VERIFICAÇÃO
+23/10/2026 · fontes e limites identificados no texto
+Página 6
+Hipótese
+Teste simples e decisão
+Quem pagaria?
+Entrevistar compradores/farmacêuticos e observar tarefas atuais; obter compromisso para piloto e acesso
+mínimo a CSV. Sem adesão, problema de mercado permanece.
+Preço/modelo
+Assinatura por organização/local/item, ou serviço de implantação, são opções de receita, não preços definidos.
+Cotar custo de implantação e perguntar disposição a pagar após demonstração.
+Quando supera planilha?
+Não há limiar universal de número de itens. Medir frequência de atualização, quantidade de locais, tempo
+gasto, erros e necessidade de histórico. Se uma planilha resolve com menos trabalho, software pago não tem
+argumento.
+Resultado econômico
+Comparar compra emergencial, dias de ruptura, vencimentos, tempo de revisão e alertas falsos antes/depois
+ou com rotina paralela. Não inventar economia.
+9. Riscos reais e resposta proporcional
+Risco
+Mitigação prática
+O que ainda sobra
+Inserção chata de dados
+Importar CSV do ERP/estoque existente; modelo curto; mapear
+colunas uma vez; automatizar só quando formato e frequência
+estiverem estáveis.
+Sem exportação nem integração acessível,
+dependerá de digitação; isso pode
+inviabilizar o produto.
+Item errado
+Chave com código local, substância, concentração, forma,
+unidade e local; revisão por farmacêutica.
+Sem catálogo padronizado, não ligar
+Anvisa, compras e estoque.
+Saldo desatualizado
+Exibir origem/data e bloquear conclusão forte com dado antigo;
+conferência humana.
+Pode produzir falsa urgência ou falsa
+segurança.
+Alerta excessivo
+Começar com fila de investigação, registrar confirmação/descarte
+e medir precisão.
+Sem histórico real não há limiar universal
+nem previsão confiável.
+Substituição clínica
+Profissional farmacêutico revisa apresentação, dose e
+equivalências; produto não recomenda automaticamente.
+Exige expertise clínica e contexto do
+serviço.
+Falta de anfitriã
+Buscar distribuidora ou rede hospitalar com responsável e CSV
+autorizado; definir termo de uso dos dados.
+Sem parceira, não há PoC operacional
+nem validação comercial.
+Privacidade/segurança
+Não coletar pacientes; usar mínimo de dados; antes de persistir,
+contas, segregação por empresa, logs e política de acesso.
+Publicar banco sem controle criaria risco
+material.
+10. Plano de validação que diferencia o produto da planilha
+Fase 1 — recorte exato. Escolher itens usados pela empresa anfitriã, cada um com código, concentração, forma,
+apresentação, unidade e local. Uma farmacêutica local de Picos pode ajudar se tiver experiência em dispensação/estoque;
+para substituição clínica complexa, pedir revisão especializada. Não existe exigência do edital de uma especialidade
+específica para essa colaboração. [L4]
+Fase 2 — entrada sem retrabalho. Obter exportação autorizada do sistema da empresa (sem dados de pacientes).
+Conferir estoque, consumo médio, pedidos, entregas previstas, prazo observado e data de atualização. Contar quanto
+tempo leva preparar o arquivo; se a carga manual for alta, interromper e redesenhar. [L2–L4]
+Fase 3 — operação paralela. Rodar a ferramenta junto da planilha/ERP atual, sem ordens automáticas. Para cada alerta,
+registrar quem verificou, saldo real, contato ao fornecedor, pedido recebido e decisão. Comparar resultados com a rotina
+existente. [L4]
+Métrica
+Definição operacional sugerida
+Cobertura
+Estoque utilizável ÷ consumo médio diário, desde que consumo e saldo sejam recentes e comparáveis.
+Diferença de atenção
+Cobertura em dias − prazo de reposição observado. Valor negativo pede investigação; não é
+probabilidade de ruptura.
+\n\n===== PAGE 7 =====\nSYNCCORE INSUMOS  /  RELATÓRIO DE VERIFICAÇÃO
+23/10/2026 · fontes e limites identificados no texto
+Página 7
+Métrica
+Definição operacional sugerida
+Antecedência útil
+Dias entre primeiro alerta confirmado e data em que uma ação ainda podia evitar ruptura.
+Alerta falso
+Alerta investigado que não correspondeu a uma necessidade de ação, conforme regra definida antes do
+piloto.
+Esforço
+Minutos por ciclo para preparar dados, revisar fila e registrar decisão; comparar com processo atual.
+Resultado
+Compras emergenciais, dias sem estoque, perdas por validade e custo, com linha de base e
+denominador claro.
+Critério de continuidade: apenas depois de demonstrar economia de tempo ou melhoria operacional suficiente para
+compensar implantação e manutenção faz sentido investir em integração permanente e cobrança recorrente. [L4]
+11. Empresa, tecnologia e publicação
+Tema
+Estado verificado
+Estrutura da marca
+Decisão do responsável: SyncCore como guarda-chuva de produtos, SyncOdonto e SyncCore Insumos. O
+concurso recebe somente a solução de insumos. [U2, S2]
+CNPJ/Inova Simples
+Captura de 23/10 mostra finalização do registro. Confirmar situação ATIVA e CNAEs no comprovante oficial.
+CNAEs 6203-1/00 e 6319-4/00 foram recomendados; não foi visto o comprovante para atestar os efetivamente
+escolhidos. [U1, S11]
+Simples Nacional
+É regime tributário separado de Inova Simples; a captura mostrou opção disponível, não adesão concluída. Não
+é critério do edital. Mesmo sem receita há obrigações declarativas quando optante. [S11–S12]
+GitHub
+Há repositório Git local em main, remote para ChicoBrownie/SyncCore-insumos.git e main alinhado a origin/main
+em 23/10. A visibilidade privada foi informada em captura anterior; não foi revalidada via API. [L5]
+Netlify
+Há pacote estático pronto para publicação. Não foi localizado neste material URL pública publicada nem teste da
+versão final no Netlify. Domínio próprio é dispensável. [L3]
+Supabase
+Projeto mostrado em captura, mas o site atual não usa banco, autenticação nem gravação de CSV no Supabase.
+Variáveis de ambiente não fazem essa integração sozinhas. [L3]
+Publicação segura do protótipo: o pacote de distribuição contém apenas HTML, JavaScript operacional e dados
+agregados do painel. Os CSVs reais de empresa, se vierem, não devem ser enviados ao site estático ou ao repositório. O
+estado operacional atual vive apenas na aba do navegador. [L2–L3]
+12. Pendências com prioridade e decisão
+Quando
+Tarefa / evidência de conclusão
+Antes de 18h de 23/10
+Confirmar envio da inscrição na Prosas e guardar protocolo; conferir anonimato do texto técnico e coerência entre
+o estágio descrito e o MVP. Preservar código e capturas datados. [S1–S2]
+Em seguida
+Registrar capturas da versão de quatro telas e refazer teste de importação cujo texto esperado está
+desatualizado; conferir CNPJ/CNAEs no comprovante e confirmar se Netlify está publicado. [L3–L5]
+Primeira validação externa
+Obter retorno da farmacêutica sobre os 12 termos e apresentações; abordar empresas com perfil de operação e
+conseguir exportação CSV autorizada, sem pacientes. [L4]
+PoC
+Definir anfitriã, responsável, itens, período, linha de base, indicadores e regras de sucesso antes de desenvolver
+integrações e alegar ROI. [S2, L4]
+Pesquisa posterior
+Testar ligações registro–fabricante–produto, compras CATMAT–apresentação, cobertura BNAFAR por UF e
+NCM aplicável. Se a chave não for segura, não exibir o indicador. [L2, S4–S7, S10]
+Decisão mais importante: a empresa pode lançar vários produtos sob a marca SyncCore, mas este edital julga uma
+solução em validação. A história mais sólida hoje é: demonstramos triagem inicial, conhecemos seus limites e
+propomos medir utilidade numa operação real.
+\n\n===== PAGE 8 =====\nSYNCCORE INSUMOS  /  RELATÓRIO DE VERIFICAÇÃO
+23/10/2026 · fontes e limites identificados no texto
+Página 8
+13. Método e rastreabilidade das afirmações
+Este relatório separa (a) regras e bases publicadas por instituições, (b) resultados reproduzíveis dos arquivos locais, (c)
+capturas e escolhas relatadas pelo responsável, e (d) hipóteses de produto. Informações dos PDFs de brainstorm e de
+outras IAs foram tratadas como sugestões, não como instruções nem como prova. Alguns fatos internacionais ou
+normativos citados nesses rascunhos não foram necessários para a tese final e ficaram fora do relatório por falta de
+verificação independente ou relevância imediata.
+Os números do MVP são derivados de uma fotografia da Anvisa, não de uma consulta em tempo real; hashes e scripts
+locais permitem repetir parte do processamento. O relatório não é laudo regulatório, contábil nem validação clínica.
+14. Fontes oficiais e externas
+[S1] Prosas — página do Concurso Desafio de Inovação NIB e anexos. Abrir fonte
+[S2] ABDI — Edital nº 005/2026 retificado, itens 3, 5, 8, 9 e Anexo I (cópia local baixada da Prosas). Abrir fonte
+[S3] ABDI — Comunicado III, respostas sobre CNAE e CNPJ no momento da inscrição (cópia local). Abrir fonte
+[S4] Anvisa — diretório dos dados abertos de medicamentos e fabricantes/IFA. Abrir fonte
+[S5] Transparência Brasil — Medicamentos Transparentes, dados abertos de PNCP/CATMAT. Abrir fonte
+[S6] MDIC — dados brutos do Comex Stat por NCM, país, ano e mês. Abrir fonte
+[S7] Ministério da Saúde/Conitec — Rename 2024. Abrir fonte
+[S8] EMA — Methodology to Identify Vulnerabilities in Supply Chains of Critical Medicines. Abrir fonte
+[S9] USP — Understanding Factors Driving Medicine Supply Chain Vulnerabilities. Abrir fonte
+[S10] Ministério da Saúde — BNAFAR, objetivos e monitoramento. Abrir fonte
+[S11] Governo Federal — perguntas frequentes do Inova Simples. Abrir fonte
+[S12] Receita Federal — optar pelo Simples Nacional. Abrir fonte
+Arquivos e registros locais usados
+[L1] data/painel.json e index.html; [L2] MAPA-DAS-FONTES-2026-10-22.md e LEIA-ME.md; [L3] README.md, dados_operacionais.js,
+PUBLICACAO.md e AVALIACAO-DO-MVP-2026-10-23.md; [L4] evidencias/VERIFICACAO-VISUAL-2026-10-22.md e
+GUIA-DE-DEMONSTRACAO.md; [L5] inspeção do repositório e execução de testes em 23/10/2026. Todos em
+C:\Users\USER\Documents\ChatGPT\ABID\outputs\mvp_insumos_criticos. [A1] auditoria/blueprint enviado na conversa, usado apenas para
+reconstruir o histórico de hipóteses. [U1] captura do registro Inova Simples enviada em 23/10. [U2] declarações e escolhas do responsável
+nesta conversa.

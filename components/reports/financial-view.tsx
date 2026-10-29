@@ -18,10 +18,11 @@ import {
   DollarSign, Plus, Loader2, AlertCircle, TrendingUp, TrendingDown,
   Wallet, CreditCard, Banknote, Smartphone, CheckCircle,
   Clock, ShieldCheck, AlertTriangle, CalendarDays,
+  X,
 } from "lucide-react"
 import { useFinancialTransactions, usePatients, createFinancialTransaction } from "@/lib/hooks/use-data"
 import { toast } from "sonner"
-import Link from "next/link"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 const PAYMENT_METHODS = [
   { value: "Espécie", label: "Espécie", icon: Banknote },
@@ -249,13 +250,17 @@ function CashClosing({ onMutate }: { onMutate: () => void }) {
 }
 
 // ── View principal de Financeiro ──────────────────────────────────────────
-export function FinancialView({ appointmentId }: { appointmentId?: string } = {}) {
+export function FinancialView({ patientId }: { patientId?: string } = {}) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState("all")
   const [filterMethod, setFilterMethod] = useState("all")
-  const [filterPeriod, setFilterPeriod] = useState(appointmentId ? "all" : "month")
+  const [filterPeriod, setFilterPeriod] = useState(patientId ? "all" : "month")
+  const [selectedPatientId, setSelectedPatientId] = useState(patientId || "")
+  const [visibleFilters, setVisibleFilters] = useState<string[]>([])
+  const [filterName, setFilterName] = useState("")
+  const [filterCpf, setFilterCpf] = useState("")
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [transactionToReceive, setTransactionToReceive] = useState<any | null>(null)
   const [receiveMethod, setReceiveMethod] = useState("")
@@ -263,6 +268,23 @@ export function FinancialView({ appointmentId }: { appointmentId?: string } = {}
   const [receiveError, setReceiveError] = useState<string | null>(null)
 
   const { patients } = usePatients()
+  const { patients: nameMatches } = usePatients(filterName.trim() || undefined)
+  const { patients: cpfMatches } = usePatients(undefined, undefined, filterCpf.replace(/\D/g, "") || undefined)
+  const addFilter = (name: string) => {
+    setVisibleFilters(current => current.includes(name) ? current : [...current, name])
+    if (name === "name" || name === "cpf") {
+      setSelectedPatientId("")
+      setFilterPeriod("all")
+    }
+  }
+  const removeFilter = (name: string) => {
+    setVisibleFilters(current => current.filter(item => item !== name))
+    if (name === "name") setFilterName("")
+    if (name === "cpf") setFilterCpf("")
+    if (name === "status") setFilterStatus("all")
+    if (name === "method") setFilterMethod("all")
+    if (name === "period") setFilterPeriod("all")
+  }
 
   const [form, setForm] = useState({
     patient_id: "", description: "", amount: "",
@@ -293,7 +315,7 @@ export function FinancialView({ appointmentId }: { appointmentId?: string } = {}
 
   const { transactions, isLoading, mutate } = useFinancialTransactions({
     status: filterStatus !== "all" ? filterStatus : undefined,
-    sourceAppointmentId: appointmentId,
+    patientId: selectedPatientId || undefined,
     ...dateFilter,
   })
 
@@ -301,8 +323,19 @@ export function FinancialView({ appointmentId }: { appointmentId?: string } = {}
     if (!transactions) return []
     let list = transactions
     if (filterMethod !== "all") list = list.filter(t => t.payment_method === filterMethod)
+    if (filterName.trim()) {
+      const matchingIds = new Set((nameMatches || []).map(patient => patient.id))
+      list = list.filter(t => Boolean(t.patient_id && matchingIds.has(t.patient_id)))
+    }
+    if (filterCpf.trim()) {
+      const digits = filterCpf.replace(/\D/g, "")
+      if (digits) {
+        const ids = new Set((cpfMatches || []).map(patient => patient.id))
+        list = list.filter(t => Boolean(t.patient_id && ids.has(t.patient_id)))
+      }
+    }
     return list
-  }, [transactions, filterMethod])
+  }, [transactions, filterMethod, filterName, filterCpf, nameMatches, cpfMatches])
 
   const metrics = useMemo(() => {
     const paid = filteredTransactions.filter(t => t.status === "paid" && t.type === "income")
@@ -397,8 +430,6 @@ export function FinancialView({ appointmentId }: { appointmentId?: string } = {}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Financeiro</h1>
-          <p className="text-muted-foreground">Registro de pagamentos e receitas da clínica</p>
-          {appointmentId && <p className="mt-2 text-sm text-primary">Mostrando a cobrança desta consulta. <Link className="underline" href="/financeiro">Ver todas as cobranças</Link></p>}
         </div>
         <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm() }}>
           <DialogTrigger asChild>
@@ -500,41 +531,27 @@ export function FinancialView({ appointmentId }: { appointmentId?: string } = {}
 
       {/* Filtros */}
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-sm font-medium">Período e filtros</p>
-              <p className="text-xs text-muted-foreground">Os totais e a lista abaixo seguem estes filtros.</p>
-            </div>
-            <div className="flex flex-wrap gap-3 items-center">
-            <div className="flex gap-1">
-              {[{ value: "today", label: "Hoje" }, { value: "week", label: "Semana" },
-                { value: "month", label: "Mês" }, { value: "all", label: "Tudo" }].map(p => (
-                <Button key={p.value} size="sm"
-                  variant={filterPeriod === p.value ? "default" : "outline"}
-                  className={filterPeriod !== p.value ? "bg-transparent" : ""}
-                  onClick={() => setFilterPeriod(p.value)}>
-                  {p.label}
-                </Button>
-              ))}
-            </div>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-36 h-8 text-sm"><SelectValue placeholder="Status" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos status</SelectItem>
-                <SelectItem value="paid">Pagos</SelectItem>
-                <SelectItem value="pending">Pendentes</SelectItem>
-                <SelectItem value="cancelled">Cancelados</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filterMethod} onValueChange={setFilterMethod}>
-              <SelectTrigger className="w-44 h-8 text-sm"><SelectValue placeholder="Forma" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as formas</SelectItem>
-                {PAYMENT_METHODS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            </div>
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button size="sm" variant="outline" className="gap-1"><Plus className="h-4 w-4" /> Adicionar filtro</Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onSelect={() => addFilter("name")}>Nome do paciente</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addFilter("cpf")}>CPF do paciente</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addFilter("status")}>Status</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addFilter("method")}>Forma de pagamento</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => addFilter("period")}>Período</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {selectedPatientId && <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-sm text-primary">Paciente: {patients?.find(patient => patient.id === selectedPatientId)?.full_name || (transactions?.[0] as any)?.patient?.full_name || "carregando…"}<button type="button" aria-label="Remover filtro de paciente" onClick={() => { setSelectedPatientId(""); setFilterPeriod("month") }}><X className="h-3.5 w-3.5" /></button></span>}
+            {filterPeriod !== "all" && !visibleFilters.includes("period") && <span className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm">{filterPeriod === "month" ? "Este mês" : filterPeriod === "week" ? "Esta semana" : "Hoje"}<button type="button" aria-label="Remover filtro de período" onClick={() => setFilterPeriod("all")}><X className="h-3.5 w-3.5" /></button></span>}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {visibleFilters.includes("name") && <div className="flex items-center gap-1"><Input aria-label="Nome do paciente" placeholder="Nome do paciente" value={filterName} onChange={event => setFilterName(event.target.value)} className="h-9 w-48" /><Button size="icon" variant="ghost" aria-label="Remover filtro de nome" onClick={() => removeFilter("name")}><X className="h-4 w-4" /></Button></div>}
+            {visibleFilters.includes("cpf") && <div className="flex items-center gap-1"><Input aria-label="CPF do paciente" inputMode="numeric" placeholder="CPF do paciente" value={filterCpf} onChange={event => setFilterCpf(event.target.value)} className="h-9 w-44" /><Button size="icon" variant="ghost" aria-label="Remover filtro de CPF" onClick={() => removeFilter("cpf")}><X className="h-4 w-4" /></Button></div>}
+            {visibleFilters.includes("status") && <div className="flex items-center gap-1"><Select value={filterStatus} onValueChange={setFilterStatus}><SelectTrigger aria-label="Status" className="h-9 w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos status</SelectItem><SelectItem value="paid">Pagos</SelectItem><SelectItem value="pending">Pendentes</SelectItem><SelectItem value="cancelled">Cancelados</SelectItem></SelectContent></Select><Button size="icon" variant="ghost" aria-label="Remover filtro de status" onClick={() => removeFilter("status")}><X className="h-4 w-4" /></Button></div>}
+            {visibleFilters.includes("method") && <div className="flex items-center gap-1"><Select value={filterMethod} onValueChange={setFilterMethod}><SelectTrigger aria-label="Forma de pagamento" className="h-9 w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todas as formas</SelectItem>{PAYMENT_METHODS.map(method => <SelectItem key={method.value} value={method.value}>{method.label}</SelectItem>)}</SelectContent></Select><Button size="icon" variant="ghost" aria-label="Remover filtro de forma de pagamento" onClick={() => removeFilter("method")}><X className="h-4 w-4" /></Button></div>}
+            {visibleFilters.includes("period") && <div className="flex flex-wrap items-center gap-1">{[{ value: "today", label: "Hoje" }, { value: "week", label: "Semana" }, { value: "month", label: "Mês" }, { value: "all", label: "Tudo" }].map(period => <Button key={period.value} size="sm" variant={filterPeriod === period.value ? "default" : "outline"} onClick={() => setFilterPeriod(period.value)}>{period.label}</Button>)}<Button size="icon" variant="ghost" aria-label="Remover filtro de período" onClick={() => removeFilter("period")}><X className="h-4 w-4" /></Button></div>}
           </div>
         </CardContent>
       </Card>

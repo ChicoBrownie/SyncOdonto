@@ -4,6 +4,7 @@ import { createSimplePdf } from "@/lib/documents/simple-pdf"
 import { documentInputSchema, parseInput } from "@/lib/validation/api-schemas"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { recordAuditEvent } from "@/lib/security/audit"
+import { budgetItems, budgetPlainText, budgetTotal } from "@/lib/documents/budget-document"
 
 const STORAGE_BUCKET = "documentos-clinica"
 
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("documents")
-    .select(`*, patient:patients(id, full_name)`)
+    .select(`*, patient:patients(id, full_name, email)`)
     .eq("user_id", ownerId)
     .order("created_at", { ascending: false })
 
@@ -52,6 +53,26 @@ export async function POST(request: Request) {
     if (!patient) return NextResponse.json({ error: "Paciente não pertence à clínica" }, { status: 403 })
   }
 
+  let documentContent = body.content || ""
+  let verifiedItems = body.items
+  let verifiedTotal = body.total_amount ?? null
+  if (body.document_type === "budget") {
+    const items = budgetItems(body.items)
+    if (!Array.isArray(body.items) || !items.length || items.length !== body.items.length) {
+      return NextResponse.json({ error: "Revise os procedimentos e valores do orçamento." }, { status: 400 })
+    }
+    if (budgetTotal(items) > 100_000_000) return NextResponse.json({ error: "O total do orçamento excede o limite permitido." }, { status: 400 })
+    verifiedItems = items
+    verifiedTotal = budgetTotal(items)
+    const { data: clinic, error: clinicError } = await supabase.from("clinic_settings").select("clinic_name,address,phone,email").eq("user_id", ownerId).maybeSingle()
+    if (clinicError) return NextResponse.json({ error: clinicError.message }, { status: 500 })
+    const { data: patient, error: patientError } = body.patient_id
+      ? await supabase.from("patients").select("full_name,email").eq("id", body.patient_id).eq("user_id", ownerId).maybeSingle()
+      : { data: null, error: null }
+    if (patientError) return NextResponse.json({ error: patientError.message }, { status: 500 })
+    documentContent = budgetPlainText({ created_at: new Date().toISOString(), lead_name: body.lead_name, description: body.description, payment_method: body.payment_method, items, patient }, clinic || {})
+  }
+
   let storagePath = body.storage_path || null
   if (storagePath && !storagePath.startsWith(`${user.id}/`)) {
     return NextResponse.json({ error: "Caminho de arquivo inválido" }, { status: 403 })
@@ -59,7 +80,7 @@ export async function POST(request: Request) {
   if (body.generate_pdf) {
     const documentId = crypto.randomUUID()
     storagePath = `${ownerId}/generated/${documentId}.pdf`
-    const pdf = createSimplePdf(body.title, body.content || body.description || "")
+    const pdf = createSimplePdf(body.title, documentContent || body.description || "")
     const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, pdf, { contentType: "application/pdf", upsert: false })
     if (uploadError) return NextResponse.json({ error: `Erro ao gerar PDF: ${uploadError.message}` }, { status: 500 })
   }
@@ -74,15 +95,15 @@ export async function POST(request: Request) {
     signed: Boolean(body.signed),
     signed_at: body.signed ? new Date().toISOString() : null,
     signature_data: body.signature_data || null,
-    content: body.content || null,
+    content: documentContent || null,
     storage_path: storagePath,
     file_url: storagePath,
     file_type: body.generate_pdf ? "application/pdf" : body.file_type || null,
     file_size: body.file_size || null,
     lead_name: body.lead_name || null,
     lead_phone: body.lead_phone || null,
-    items: body.items || null,
-    total_amount: body.total_amount ?? null,
+    items: verifiedItems || null,
+    total_amount: verifiedTotal,
     payment_method: body.payment_method || null,
   }
 

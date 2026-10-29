@@ -22,6 +22,7 @@ import { encounterRequest } from "@/lib/encounters/client"
 import { applyBudgetGroupDiscount, budgetContent, budgetTotal, mergeTreatments, stepLabels, steps, type EncounterStep } from "@/lib/encounters/model"
 import { ContextualHelp, type GuideStep } from "./contextual-help"
 import { BudgetSection } from "./budget-section"
+import { CompletedEncounterActions } from "./completed-encounter-actions"
 import { operationalNow } from "./encounter-entry"
 import { capitalizeWords, formatCpf, patientSearchPrefill } from "@/lib/encounters/patient-input"
 import { emailProposalUrl, whatsappProposalUrl } from "@/lib/encounters/sharing"
@@ -85,7 +86,15 @@ export function EncounterEditor({ id }: { id: string }) {
     try { await go(step) } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível salvar.") }
   }
   if (!draft) return <div role="status" className="space-y-3"><p>{saveState === "loading" ? "Carregando atendimento…" : message}</p>{saveState !== "loading" && <Button onClick={() => void reload()}>Tentar novamente</Button>}</div>
-  if (draft.status !== "active") return <section className="mx-auto max-w-xl space-y-4"><h1 className="text-2xl font-bold">{draft.status === "completed" ? "Atendimento concluído" : "Rascunho descartado"}</h1><p>{draft.status === "completed" ? "Os registros clínicos e a proposta assinada foram preservados. A cobrança está vinculada à consulta." : "O descarte foi solicitado explicitamente. Cadastros, consultas e registros já confirmados foram preservados."}</p>{draft.status === "completed" && access?.permissions?.financeiro && <Button asChild><Link href={`/financeiro?appointmentId=${draft.appointment_id}`}>Conferir cobrança e registrar recebimento</Link></Button>}{draft.signed_document_id && <Button asChild variant="outline"><Link href={`/api/encounters/${id}/document?format=html`} target="_blank">Ver proposta assinada</Link></Button>}<Button asChild variant="outline"><Link href="/atendimento">Iniciar outro atendimento</Link></Button></section>
+  if (draft.status !== "active") return <section className="mx-auto max-w-xl space-y-4">
+    <h1 className="text-2xl font-bold">{draft.status === "completed" ? "Atendimento concluído" : "Rascunho descartado"}</h1>
+    <p>{draft.status === "completed" ? "Os registros clínicos e a proposta assinada foram preservados. A cobrança está vinculada à consulta." : "O descarte foi solicitado explicitamente. Cadastros, consultas e registros já confirmados foram preservados."}</p>
+    {draft.status === "completed" && <>
+      {access?.permissions?.financeiro && draft.patient_id && <Button asChild><Link href={`/financeiro?patientId=${draft.patient_id}`}>Conferir cobranças e registrar recebimento</Link></Button>}
+      <CompletedEncounterActions encounterId={id} patientId={draft.patient_id} signed={Boolean(draft.signed_document_id)} />
+    </>}
+    <Button asChild variant="outline"><Link href="/atendimento">Iniciar outro atendimento</Link></Button>
+  </section>
   const p = { ...draft.payload, registration: { ...draft.payload.registration, email: draft.payload.registration.email || "" } }
   const scheduling = p.scheduling
   const setScheduling = (value: boolean) => update(v => ({ ...v, scheduling: value }))

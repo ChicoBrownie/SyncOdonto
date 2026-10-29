@@ -12,8 +12,11 @@ import {
   Building2,
   DollarSign,
   FileText,
+  FileSpreadsheet,
   Leaf,
   Settings,
+  Package,
+  ClipboardList,
   X,
 } from "lucide-react"
 
@@ -73,7 +76,10 @@ function SidebarContent({
     { icon: Calendar, label: "Agendamento", href: "/agenda" },
     { icon: Play, label: "Atendimento", href: "/atendimento" },
     { icon: Users, label: "Lista de Pacientes", href: "/pacientes" },
+    ...(accessRes?.access_role === "gestor" ? [{ icon: FileSpreadsheet, label: "Importar dados", href: "/importacao" }] : []),
     { icon: Building2, label: "Equipe", href: "/gestao-clinica" },
+    { icon: Package, label: "Insumos", href: "/insumos" },
+    { icon: ClipboardList, label: "Orçamentos", href: "/orcamentos" },
     ...(permissions?.financeiro === false ? [] : [{ icon: DollarSign, label: "Financeiro", href: "/financeiro" }]),
     ...(permissions?.configuracoes === false ? [] : [{ icon: Settings, label: "Configurações", href: "/configuracoes" }]),
     ...(permissions?.relatorios === false ? [] : [{ icon: FileText, label: "Relatórios", href: "/relatorios" }]),

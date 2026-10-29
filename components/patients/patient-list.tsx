@@ -36,7 +36,7 @@ export function PatientList() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-3xl font-bold text-foreground">Lista de Pacientes</h1><p className="text-muted-foreground">Gerencia e acompanhe seus pacientes</p></div>
-        {access?.access_role === "gestor" && <Button variant="outline" asChild><Link href="/importacao">Importar pacientes</Link></Button>}
+        {access?.access_role === "gestor" && <Button variant="outline" asChild><Link href="/importacao">Importar dados</Link></Button>}
       </div>
 
       {/* Search and Filters */}

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { EncounterPayload } from "@/lib/encounters/model"
 import {
-  Check, CheckCircle2, Clock3, History, Loader2,
+  Check, CheckCircle2, ChevronDown, Clock3, History, Loader2,
   Pencil, Plus, Sparkles, Trash2, X, ZoomIn, ZoomOut,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -22,6 +22,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { buildTreatmentIndicators } from "@/lib/dental-chart/treatment-indicators"
+import { searchProcedures } from "@/lib/dental-chart/procedure-search"
 import {
   CONDITIONS, CONDITION_TO_DB, DB_TO_CONDITION, DentalChart, SURFACE_LABELS,
   type ToothArea, type ToothCondition, type ToothRegion, type ToothState,
@@ -150,6 +151,8 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
   const [catalogDialogOpen, setCatalogDialogOpen] = useState(false)
   const [procedurePickerOpen, setProcedurePickerOpen] = useState(false)
   const [procedureSearch, setProcedureSearch] = useState("")
+  const procedurePickerRef = useRef<HTMLDivElement>(null)
+  const procedureSearchRef = useRef<HTMLInputElement>(null)
   const [newProcedure, setNewProcedure] = useState({ name: "", description: "", price: "", favorite: false })
   const [savingProcedure, setSavingProcedure] = useState(false)
   const [editingTreatment, setEditingTreatment] = useState<TreatmentItem | null>(null)
@@ -160,6 +163,16 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
   const [completionResult, setCompletionResult] = useState<ToothCondition | "">("")
   const [completingItem, setCompletingItem] = useState(false)
   const favoriteCount = catalog.filter((item) => item.is_favorite && item.is_active).length
+  useEffect(() => {
+    if (!procedurePickerOpen) return
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (procedurePickerRef.current?.contains(event.target as Node)) return
+      setProcedurePickerOpen(false)
+      setProcedureSearch("")
+    }
+    document.addEventListener("click", closeOnOutsideClick)
+    return () => document.removeEventListener("click", closeOnOutsideClick)
+  }, [procedurePickerOpen])
   const emittedForm = useRef(JSON.stringify(encounterForm))
   useEffect(() => {
     if (!onEncounterFormChange) return
@@ -286,11 +299,11 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
     setProcedureSearch("")
   }
 
-  const filteredCatalog = useMemo(() => {
-    const query = procedureSearch.trim().toLocaleLowerCase("pt-BR")
-    if (!query) return catalog
-    return catalog.filter((item) => `${item.name} ${item.description || ""}`.toLocaleLowerCase("pt-BR").includes(query))
-  }, [catalog, procedureSearch])
+  const procedureResults = useMemo(() => searchProcedures(catalog, procedureSearch), [catalog, procedureSearch])
+  const selectedProcedure = catalog.find((item) => item.id === selectedProcedureId)
+  const procedureOptions = !procedureSearch.trim() && selectedProcedure
+    ? [selectedProcedure, ...procedureResults.matches.filter((item) => item.id !== selectedProcedureId)]
+    : procedureResults.matches
 
   const resetProcedureForm = () => {
     setSelectedProcedureId("")
@@ -541,19 +554,26 @@ export function DentalChartView({ patientId, appointmentId, professionalName, on
           <Card>
             <CardContent className="space-y-3 p-3 sm:px-4 sm:py-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                <div className="min-w-0 flex-1 space-y-2">
+                <div ref={procedurePickerRef} className="min-w-0 flex-1 space-y-2">
                   <Label>Procedimento</Label>
-                  <Button type="button" variant="outline" className="w-full justify-between font-normal" onClick={() => setProcedurePickerOpen(true)} disabled={!selectedTooth || selectedAreas.length === 0}>
-                    <span className="truncate">{catalog.find((item) => item.id === selectedProcedureId)?.name || "Selecionar procedimento"}</span>
-                    <span className="text-muted-foreground">⌄</span>
-                  </Button>
+                  {procedurePickerOpen ? (
+                    <div className="overflow-hidden rounded-lg border border-primary/30 bg-background shadow-sm">
+                      <Input ref={procedureSearchRef} value={procedureSearch} onChange={event => setProcedureSearch(event.target.value)} onKeyDown={event => { if (event.key === "Escape") { setProcedurePickerOpen(false); setProcedureSearch("") } }} placeholder="Pesquisar procedimento" aria-label="Pesquisar procedimento" role="combobox" aria-expanded="true" aria-controls="procedure-options" className="border-0 shadow-none focus-visible:ring-0" />
+                      <div id="procedure-options" role="listbox" aria-label="Procedimentos disponíveis" className="max-h-52 space-y-1 overflow-y-auto overscroll-contain border-t p-1">
+                        {procedureResults.suggested && <p className="px-3 py-1 text-xs text-muted-foreground">Talvez você queira dizer:</p>}
+                        {procedureResults.matches.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">Nenhum procedimento encontrado.</p>}
+                        {procedureOptions.map(item => <button key={item.id} type="button" role="option" aria-selected={item.id === selectedProcedureId} onClick={() => chooseProcedure(item)} className={cn("flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none", item.id === selectedProcedureId && "bg-primary/10 font-medium text-primary ring-1 ring-inset ring-primary/30")}><span className="min-w-0 truncate">{item.name}</span>{item.id === selectedProcedureId && <span className="flex shrink-0 items-center gap-1 text-xs"><Check className="size-4" />Selecionado</span>}</button>)}
+                        {procedureResults.canCreate && <button type="button" role="option" aria-selected="false" onClick={() => { setNewProcedure({ name: procedureSearch.trim(), description: "", price: "", favorite: false }); setProcedurePickerOpen(false); setProcedureSearch(""); setCatalogDialogOpen(true) }} className="flex min-h-11 w-full items-center gap-2 rounded-md border-t px-3 py-2 text-left text-sm font-medium text-primary hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"><Plus className="h-4 w-4" />Cadastrar “{procedureSearch.trim()}”</button>}
+                      </div>
+                    </div>
+                  ) : <Button type="button" variant="outline" className={cn("w-full justify-between gap-2 border-primary/40 bg-primary/5 text-left font-medium hover:border-primary/70 hover:bg-primary/10", selectedProcedure && "border-primary bg-primary/10 ring-1 ring-primary/20")} onClick={() => { setProcedurePickerOpen(true); requestAnimationFrame(() => procedureSearchRef.current?.focus()) }} disabled={!selectedTooth || selectedAreas.length === 0} aria-haspopup="listbox" aria-expanded="false"><span className="min-w-0 truncate">{selectedProcedure?.name || "Pesquisar procedimento"}</span><ChevronDown className="size-5 shrink-0 text-primary" aria-hidden="true" /></Button>}
+                  {selectedProcedure && <p id="pending-procedure-hint" role="status" className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground"><Clock3 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" /><span>Você selecionou <strong>{selectedProcedure.name}</strong>. {selectedTooth && selectedAreas.length > 0 ? <>Ainda não foi adicionado. Toque em <strong>Adicionar procedimento</strong>.</> : <>Escolha o dente e a região para poder adicionar.</>}</span></p>}
                 </div>
-                <div className="flex shrink-0 flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 sm:shrink-0">
                   {showNotes ? <Button type="button" variant="outline" size="sm" onClick={() => { setShowNotes(false); setNotes("") }}><X className="mr-1 h-3.5 w-3.5" />Ocultar observação</Button> : <Button type="button" variant="ghost" size="sm" onClick={() => setShowNotes(true)}>+ Adicionar observação</Button>}
-                  <Button onClick={addTreatment} disabled={savingItem || !selectedTooth || selectedAreas.length === 0 || !selectedProcedureId}>{savingItem ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : <><Plus className="mr-2 h-4 w-4" />Adicionar</>}</Button>
+                  <Button onClick={addTreatment} disabled={savingItem || !selectedTooth || selectedAreas.length === 0 || !selectedProcedureId} aria-describedby={selectedProcedure ? "pending-procedure-hint" : undefined} className={cn("w-full sm:w-auto", selectedProcedure && "ring-2 ring-primary/35 ring-offset-2")}>{savingItem ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : <><Plus className="mr-2 h-4 w-4" />Adicionar procedimento</>}</Button>
                 </div>
               </div>
-              {procedurePickerOpen && <div className="rounded-lg border border-primary/30 bg-background p-2 shadow-sm"><Input value={procedureSearch} onChange={event => setProcedureSearch(event.target.value)} placeholder="Pesquisar procedimento" aria-label="Pesquisar procedimento" /><div className="mt-2 max-h-36 space-y-1 overflow-y-auto">{filteredCatalog.length === 0 ? <p className="p-2 text-sm text-muted-foreground">Nenhum procedimento encontrado.</p> : filteredCatalog.map(item => <button key={item.id} type="button" onClick={() => chooseProcedure(item)} className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-muted">{item.name}</button>)}</div><div className="mt-2 flex justify-between gap-2"><Button type="button" size="sm" variant="ghost" onClick={() => { setProcedurePickerOpen(false); setProcedureSearch("") }}>Fechar</Button><Button type="button" size="sm" variant="outline" onClick={() => { setProcedurePickerOpen(false); setCatalogDialogOpen(true) }}>Cadastrar novo</Button></div></div>}
               {showNotes && <div className="space-y-2"><Label htmlFor="odontogram-notes">Observação</Label><Textarea id="odontogram-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Detalhes clínicos ou do planejamento" /></div>}
 
               <div className="border-t pt-3">

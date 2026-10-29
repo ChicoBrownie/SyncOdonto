@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { encounterPayloadSchema } from "@/lib/encounters/model"
-import { proposalPrintHtml, recordPrintHtml, recordPrintSections } from "@/lib/encounters/print-html"
+import { recordPrintHtml, recordPrintSections } from "@/lib/encounters/print-html"
 import { documentHeaders } from "@/lib/encounters/document-html"
 import { databaseError, encounterContext } from "@/lib/encounters/server"
 import { createSimplePdf } from "@/lib/documents/simple-pdf"
-import { budgetContent } from "@/lib/encounters/model"
+import { budgetPlainText, budgetPrintHtml } from "@/lib/documents/budget-document"
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const context = await encounterContext()
@@ -27,8 +27,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (patientError) return databaseError(patientError)
   if (!patient) return NextResponse.json({ error: "Paciente indisponível." }, { status: 404 })
   if (kind === "proposal") {
-    if (asPdf) return new Response(new Uint8Array(createSimplePdf("Proposta de tratamento", budgetContent(patient.full_name, payload.data) + "\n\nAssinatura: ____________________________________")), { headers: { "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename=proposta-tratamento.pdf", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } })
-    return new Response(proposalPrintHtml(patient.full_name, payload.data), { headers: documentHeaders })
+    const { data: clinic, error: clinicError } = await supabase.from("clinic_settings").select("clinic_name,address,phone,email").eq("user_id", ownerId).maybeSingle()
+    if (clinicError) return databaseError(clinicError)
+    const proposal = { created_at: new Date().toISOString(), patient, items: payload.data.budget.items, payment_method: payload.data.budget.payment_method }
+    if (asPdf) return new Response(new Uint8Array(createSimplePdf("Proposta de tratamento", budgetPlainText(proposal, clinic || {}))), { headers: { "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename=proposta-tratamento.pdf", "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } })
+    return new Response(budgetPrintHtml(proposal, clinic || {}), { headers: { ...documentHeaders, "Content-Security-Policy": `${documentHeaders["Content-Security-Policy"]}; script-src 'self'` } })
   }
 
   const [anamneses, records, teeth, documents, signed] = await Promise.all([

@@ -57,6 +57,10 @@ export function ImportView() {
   return <div className="mx-auto max-w-3xl space-y-6 pb-16">
     <Link href="/pacientes" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" /> Voltar aos pacientes</Link>
     <div><h1 className="text-3xl font-bold">Importar dados da clínica</h1><p className="mt-2 text-muted-foreground">Traga pacientes, prontuários e exames de outro sistema. A importação está disponível para o gestor da clínica.</p></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4 text-sm">
+      <div><p className="font-medium">Materiais e fornecedores</p><p className="text-muted-foreground">Migre também o estoque por planilha.</p></div>
+      <Button variant="outline" asChild><Link href="/insumos?importar=1">Importar insumos</Link></Button>
+    </div>
     <Alert><FileSpreadsheet className="size-4" /><AlertDescription>Use arquivos CSV (UTF-8) ou Excel (.xlsx). A planilha principal deve conter os pacientes. Uma planilha Excel também pode ter abas chamadas Pacientes, Prontuários e Exames. Confira a prévia antes de gravar. Cada envio aceita até 4 MB e 1.000 linhas por aba; para lotes seguintes, mantenha o mesmo nome do sistema de origem.</AlertDescription></Alert>
     <Card><CardHeader><CardTitle className="text-lg">1. Selecione os dados</CardTitle></CardHeader><CardContent className="space-y-5">
       <label className="block space-y-2 text-sm font-medium">Nome do sistema de origem

@@ -65,8 +65,16 @@ Os scripts SQL estão em `scripts/` e devem ser aplicados em ordem numérica:
 9. `009_odontogram_versions_by_appointment.sql`
 10. `010_procedure_catalog_defaults_and_status_colors.sql`
 11. `012_security_advisor_hardening.sql`
+12. `013_multi_region_treatments.sql`
+13. `014_mobile_encounters.sql`
+14. `015_encounter_appointment_time.sql`
+15. `016_encounter_late_start.sql`
+16. `017_anamnesis_custom_questions.sql`
+17. `018_supply_planning.sql` — planejamento inicial de insumos
 
 O script pontual `011_reset_tiago_odontogram.sql` é exclusivo para limpar os dados de teste do paciente Thiago Assuncao, preservando o histórico de versões.
+
+O módulo de insumos está descrito em [docs/INSUMOS_MVP.md](docs/INSUMOS_MVP.md). Ele requer a migração 018 antes de uso e não altera automaticamente o estoque com base na agenda.
 
 Antes de executar os scripts em uma base existente, faça backup e revise as diferenças no Supabase. Os scripts não substituem uma estratégia formal de migrações e não devem ser reaplicados cegamente em produção.
 

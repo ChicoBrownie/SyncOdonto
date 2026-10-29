@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog, DialogContent, DialogDescription,
@@ -11,11 +12,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select"
-import {
   ArrowLeft, FileText,
-  Activity, Loader2, AlertCircle, Check, Printer,
+  Activity, Loader2, AlertCircle, Check, Printer, ChevronDown,
 } from "lucide-react"
 import { AttachedExams } from "./attached-exams"
 import { MedicalInformation } from "./medical-information"
@@ -76,6 +74,7 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
 
   // ── Estado do modal de encerramento ──────────────────────────────────────
   const [closeOpen, setCloseOpen] = useState(false)
+  const [patientDetailsOpen, setPatientDetailsOpen] = useState(false)
   const [closeModalCost, setCloseModalCost] = useState("")
   const [odontogramTotal, setOdontogramTotal] = useState(0)
   const [isClosing, setIsClosing] = useState(false)
@@ -210,39 +209,62 @@ export function MedicalRecordView({ patientId }: MedicalRecordViewProps) {
 
       {/* Cabeçalho clínico compacto */}
       <Button asChild className="min-h-11"><Link href={`/atendimento?patientId=${patientId}${activeAppointment ? `&appointmentId=${activeAppointment.id}` : ""}`}>{activeAppointment ? "Continuar atendimento guiado" : "Iniciar atendimento deste paciente"}</Link></Button>
-      <div className="flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-center sm:justify-between sm:pb-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link href="/pacientes" className="hidden sm:block"><Button variant="ghost" size="icon" aria-label="Voltar para pacientes"><ArrowLeft className="h-5 w-5" /></Button></Link>
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary sm:h-11 sm:w-11">
-                {getInitials(patient.full_name)}
+      <Collapsible open={patientDetailsOpen} onOpenChange={setPatientDetailsOpen} className="border-b pb-3 sm:pb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <Link href="/pacientes" className="hidden sm:block"><Button variant="ghost" size="icon" aria-label="Voltar para pacientes"><ArrowLeft className="h-5 w-5" /></Button></Link>
+            <h1 className="min-w-0">
+              <CollapsibleTrigger asChild>
+                <button type="button" className="group flex min-w-0 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary sm:h-11 sm:w-11">
+                    {getInitials(patient.full_name)}
+                  </span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-lg font-semibold text-foreground sm:text-xl">{patient.full_name}</span>
+                      <Badge
+                        variant={(patient.status as string) === "Ativo" ? "default" : "secondary"}
+                        className={
+                          (patient.status as string) === "Ativo"
+                            ? "bg-success/10 text-success"
+                            : (patient.status as string) === "Em Tratamento"
+                              ? "bg-blue-500/10 text-blue-600"
+                              : ""
+                        }
+                      >
+                        {patient.status}
+                      </Badge>
+                    </span>
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {age !== null ? `${age} anos` : ""} {patient.gender ? `- ${patient.gender}` : ""}
+                    </span>
+                  </span>
+                  <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+                </button>
+              </CollapsibleTrigger>
+            </h1>
+            {activeAppointment && <Badge className="hidden bg-amber-100 text-amber-800 hover:bg-amber-100 md:inline-flex">Consulta em andamento</Badge>}
           </div>
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-                  <h1 className="truncate text-lg font-semibold text-foreground sm:text-xl">{patient.full_name}</h1>
-                  <Badge
-                    variant={(patient.status as string) === "Ativo" ? "default" : "secondary"}
-                    className={
-                      (patient.status as string) === "Ativo"
-                        ? "bg-success/10 text-success"
-                        : (patient.status as string) === "Em Tratamento"
-                          ? "bg-blue-500/10 text-blue-600"
-                          : ""
-                    }
-                  >
-                    {patient.status}
-                  </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">
-                  {age ? `${age} anos` : ""} {patient.gender ? `- ${patient.gender}` : ""}
-            </p>
+          <div className="flex shrink-0 justify-end gap-2">
+            {activeAppointment && <Button size="sm" onClick={openCloseModal}><Check className="mr-1.5 h-3.5 w-3.5" />Encerrar</Button>}
+            <Button variant="outline" size="icon" className="bg-transparent" onClick={() => window.print()} aria-label="Imprimir prontuário"><Printer className="h-4 w-4" /></Button>
           </div>
-          {activeAppointment && <Badge className="hidden bg-amber-100 text-amber-800 hover:bg-amber-100 md:inline-flex">Consulta em andamento</Badge>}
         </div>
-        <div className="flex shrink-0 justify-end gap-2">
-          {activeAppointment && <Button size="sm" onClick={openCloseModal}><Check className="mr-1.5 h-3.5 w-3.5" />Encerrar</Button>}
-          <Button variant="outline" size="icon" className="bg-transparent" onClick={() => window.print()} aria-label="Imprimir prontuário"><Printer className="h-4 w-4" /></Button>
-        </div>
-      </div>
+        <CollapsibleContent className="overflow-hidden data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up motion-reduce:animate-none">
+          <div className="mt-4 rounded-lg border bg-muted/30 p-4 sm:ml-14">
+            <p className="mb-3 text-sm font-semibold text-foreground">Dados do paciente</p>
+            <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              <div><dt className="text-muted-foreground">Data de nascimento</dt><dd>{patient.date_of_birth ? patient.date_of_birth.slice(0, 10).split("-").reverse().join("/") : "Não informada"}</dd></div>
+              <div><dt className="text-muted-foreground">CPF</dt><dd>{patient.cpf || "Não informado"}</dd></div>
+              <div><dt className="text-muted-foreground">Telefone</dt><dd>{patient.phone || "Não informado"}</dd></div>
+              <div><dt className="text-muted-foreground">E-mail</dt><dd className="break-all">{patient.email || "Não informado"}</dd></div>
+              <div><dt className="text-muted-foreground">Gênero</dt><dd>{patient.gender || "Não informado"}</dd></div>
+              <div><dt className="text-muted-foreground">Endereço</dt><dd className="break-words">{patient.address || "Não informado"}</dd></div>
+              {patient.notes && <div className="sm:col-span-2 lg:col-span-3"><dt className="text-muted-foreground">Observações</dt><dd className="whitespace-pre-wrap break-words">{patient.notes}</dd></div>}
+            </dl>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* Tabs */}
       <Tabs defaultValue="prontuario" className="space-y-6">

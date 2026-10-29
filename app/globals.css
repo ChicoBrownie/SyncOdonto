@@ -3,7 +3,7 @@
 
 .clinical-help-button {
   position: fixed;
-  left: 1rem;
+  left: calc(0.5rem + env(safe-area-inset-left));
   bottom: calc(5.75rem + env(safe-area-inset-bottom));
   z-index: 65;
   display: grid;
@@ -45,7 +45,7 @@
   .clinical-help-button,
   .clinical-help-button--encounter {
     bottom: 2rem;
-    left: 17rem;
+    left: 16.5rem;
   }
 }
 

@@ -1,10 +1,21 @@
 import { NextResponse } from "next/server"
 
 import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
+import { missingDefaultProcedureRows } from "@/lib/dental-chart/catalog-seed"
 import { parseInput, procedureCatalogInputSchema } from "@/lib/validation/api-schemas"
 import { stripImmutableTenantFields } from "@/lib/security/request-data"
 
 const QUICK_OPTION_LIMIT = 5
+
+async function seedDefaultProcedures(supabase: any, ownerId: string) {
+  const { data: existing, error } = await supabase.from("procedure_catalog").select("id, name").eq("user_id", ownerId)
+  if (error) return error
+  const rows = missingDefaultProcedureRows(ownerId, existing || [])
+  if (rows.length === 0) return null
+  const { error: insertError } = await supabase.from("procedure_catalog").upsert(rows, { onConflict: "id", ignoreDuplicates: true })
+  // Uma criação simultânea com o mesmo nome pode vencer a corrida; a próxima leitura completa o lote.
+  return insertError?.code === "23505" ? null : insertError
+}
 
 async function quickOptionLimitReached(supabase: any, ownerId: string) {
   const { count, error } = await supabase
@@ -22,6 +33,9 @@ export async function GET(request: Request) {
   if ("error" in result && result.error) return result.error
   const { supabase, ownerId } = result as any
   const includeInactive = new URL(request.url).searchParams.get("includeInactive") === "true"
+
+  const seedError = await seedDefaultProcedures(supabase, ownerId)
+  if (seedError) return NextResponse.json({ error: seedError.message }, { status: 500 })
 
   let query = supabase
     .from("procedure_catalog")

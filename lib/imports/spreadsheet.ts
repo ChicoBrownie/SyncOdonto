@@ -45,7 +45,7 @@ export function normalizeHeader(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim()
 }
 
-function cellText(value: ExcelJS.CellValue): string {
+export function cellText(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return ""
   if (value instanceof Date) return value.toISOString().slice(0, 10)
   if (typeof value === "object") {
@@ -84,7 +84,7 @@ export function parseCsv(text: string): string[][] {
   return rows
 }
 
-function checkXlsxArchive(bytes: Uint8Array) {
+export function checkXlsxArchive(bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   if (bytes.length < 22 || view.getUint32(0, true) !== 0x04034b50) throw new Error("Arquivo Excel inválido.")
   let end = -1

@@ -39,10 +39,11 @@ export function useDashboard() {
 }
 
 // Patients
-export function usePatients(search?: string, status?: string) {
+export function usePatients(search?: string, status?: string, cpf?: string) {
   const params = new URLSearchParams()
   if (search) params.set("search", search)
   if (status) params.set("status", status)
+  if (cpf) params.set("cpf", cpf)
   
   const { data, error, isLoading, mutate } = useSWR(
     `/api/patients?${params.toString()}`,
