@@ -70,6 +70,7 @@ export function buildImportPlan(sheets: ImportSheet[], clinicId: string, sourceN
           v.inline_exam_result && `Resultado: ${v.inline_exam_result}`,
         ].filter(Boolean).join("\n")
         const notes = [
+          v.insurance && `Convênio: ${v.insurance}`,
           v.notes,
           v.source_id && `ID no sistema de origem: ${v.source_id}`,
           hasRecordSheet && embeddedRecord && `Atendimento na origem:\n${embeddedRecord}`,

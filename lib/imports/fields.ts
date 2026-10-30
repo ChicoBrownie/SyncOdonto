@@ -2,7 +2,7 @@ import type { ImportKind } from "./spreadsheet"
 
 export const importFieldLabels: Record<ImportKind, Record<string, string>> = {
   patients: {
-    source_id: "ID no sistema anterior", full_name: "Nome", email: "Email", phone: "Telefone",
+    source_id: "ID no sistema anterior", full_name: "Nome", email: "Email", phone: "Telefone", insurance: "Convênio",
     date_of_birth: "Data de nascimento", gender: "Gênero", cpf: "CPF", address: "Endereço",
     allergies: "Alergias", pre_existing_conditions: "Condições pré-existentes", medications: "Medicamentos",
     notes: "Observações", clinical_notes: "Histórico clínico", inline_record_id: "ID do prontuário", inline_record_date: "Data do atendimento",

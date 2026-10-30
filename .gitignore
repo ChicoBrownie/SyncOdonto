@@ -22,6 +22,7 @@ playwright-report/
 /output/
 /tmp/
 *.tsbuildinfo
+/bun.lock
 /arquivos.txt
 /auth_flow.txt
 /busca_email.txt
