@@ -17,11 +17,16 @@ export async function getClinicScopedClient() {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    const { data: staff } = await serviceClient
+    const { data: staff, error: staffError } = await serviceClient
       .from("clinic_staff")
       .select("user_id, access_role, permissions, is_active")
       .eq("auth_user_id", user.id)
       .maybeSingle()
+
+    if (staffError) {
+      console.error("[clinic-scope] Não foi possível consultar a equipe:", staffError)
+      return { error: NextResponse.json({ error: "Não foi possível verificar as permissões." }, { status: 503 }) }
+    }
 
     if (staff?.is_active === false) {
       return { error: NextResponse.json({ error: "Acesso desativado pelo gestor da clínica." }, { status: 403 }) }

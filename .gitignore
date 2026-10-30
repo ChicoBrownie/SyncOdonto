@@ -8,6 +8,8 @@ node_modules/
 .next/
 .env
 .env.*
+!.env.example
+!.env.pilot.example
 .DS_Store
 .vercel
 .npm-cache/
@@ -15,3 +17,14 @@ node_modules/
 test-results/
 playwright-report/
 .mobile-test-build/
+
+# Local outputs and temporary work files
+/output/
+/tmp/
+*.tsbuildinfo
+/arquivos.txt
+/auth_flow.txt
+/busca_email.txt
+/codigo_atual.txt
+/estrutura.txt
+/todas_as_rotas.txt

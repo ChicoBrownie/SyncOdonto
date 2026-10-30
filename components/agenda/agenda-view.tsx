@@ -31,6 +31,7 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 
 const DEFAULT_CLOSING_HOUR = 18
+const NON_RESCHEDULABLE_STATUSES = ["Em Andamento", "Concluída", "Cancelada", "Falta"]
 
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number)
@@ -118,18 +119,6 @@ function getWeekDays(referenceDate: Date): Date[] {
   })
 }
 
-function getMonthDays(referenceDate: Date): (Date | null)[] {
-  const year = referenceDate.getFullYear()
-  const month = referenceDate.getMonth()
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-  const startOffset = (firstDay.getDay() + 6) % 7
-  const days: (Date | null)[] = []
-  for (let i = 0; i < startOffset; i++) days.push(null)
-  for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d))
-  return days
-}
-
 const CANCEL_REASONS = [
   "Falta de dinheiro",
   "Falta de tempo",
@@ -153,15 +142,16 @@ export function AgendaView() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const targetAppointmentId = searchParams.get("appointmentId")
-  const [selectedDate, setSelectedDate] = useState(new Date())
-  const [viewMode, setViewMode] = useState<"day" | "week" | "month" | "custom">("week")
+  const targetDate = searchParams.get("date")
+  const validTargetDate = targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? targetDate : null
+  const [selectedDate, setSelectedDate] = useState(() => validTargetDate ? new Date(`${validTargetDate}T12:00:00`) : new Date())
+  const [viewMode, setViewMode] = useState<"day" | "week" | "custom">(validTargetDate ? "day" : "week")
   useEffect(() => {
-    const targetDate = searchParams.get("date")
-    if (targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
-      setSelectedDate(new Date(`${targetDate}T12:00:00`))
+    if (validTargetDate) {
+      setSelectedDate(new Date(`${validTargetDate}T12:00:00`))
       setViewMode("day")
     }
-  }, [searchParams])
+  }, [validTargetDate])
   const [customStart, setCustomStart] = useState(toLocalDateString(new Date()))
   const [customEnd, setCustomEnd] = useState(toLocalDateString(new Date()))
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -170,6 +160,12 @@ export function AgendaView() {
   const [rangeEnd, setRangeEnd] = useState(toLocalDateString(new Date()))
   const [movingId, setMovingId] = useState<string | null>(null)
   const [movingBusy, setMovingBusy] = useState(false)
+  const [detailsId, setDetailsId] = useState<string | null>(null)
+  const [detailDate, setDetailDate] = useState("")
+  const [detailTime, setDetailTime] = useState("")
+  const [detailProcedure, setDetailProcedure] = useState("")
+  const [detailDoctor, setDetailDoctor] = useState("")
+  const [detailError, setDetailError] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -188,8 +184,7 @@ export function AgendaView() {
   }, [])
 
   const dateString = toLocalDateString(selectedDate)
-  const todayString = toLocalDateString(new Date())
-  const { appointments, isLoading, error, mutate } = useAppointments({ date: dateString })
+  const { appointments, isLoading, error, mutate } = useAppointments({ date: dateString, enabled: viewMode === "day" })
   const appointmentsList: any[] = (appointments as any[]) || []
   useEffect(() => {
     if (!targetAppointmentId || isLoading || !appointmentsList.some(appt => appt.id === targetAppointmentId)) return
@@ -204,28 +199,20 @@ export function AgendaView() {
   const weekDays = getWeekDays(selectedDate)
   const weekStart = toLocalDateString(weekDays[0])
   const weekEnd = toLocalDateString(weekDays[6])
-  const monthDays = getMonthDays(selectedDate)
-  const monthStart = toLocalDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
-  const monthEnd = toLocalDateString(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0))
-
   const { data: weekData, mutate: mutateWeek } = useSWR(
     viewMode === "week" ? `/api/appointments?startDate=${weekStart}&endDate=${weekEnd}` : null,
     (url: string) => fetch(url).then(r => r.json())
   )
   const weekAppointments: any[] = weekData?.data || []
+  const detailAppointment = weekAppointments.find(a => a.id === detailsId)
 
-  const { data: monthData } = useSWR(
-    viewMode === "month" ? `/api/appointments?startDate=${monthStart}&endDate=${monthEnd}` : null,
-    (url: string) => fetch(url).then(r => r.json())
-  )
-  const monthAppointments: any[] = monthData?.data || []
   const { data: customData } = useSWR(viewMode === "custom" && customStart <= customEnd ? `/api/appointments?startDate=${customStart}&endDate=${customEnd}` : null, (url: string) => fetch(url).then(r => r.json()))
   const customAppointments: any[] = customData?.data || []
 
-  const { patients } = usePatients()
-  const { data: staffRes } = useSWR("/api/clinic-staff", (url: string) => fetch(url).then(r => r.json()))
+  const { patients } = usePatients(undefined, undefined, undefined, isDialogOpen)
+  const { data: staffRes } = useSWR(isDialogOpen ? "/api/clinic-staff" : null, (url: string) => fetch(url).then(r => r.json()))
   const staff = staffRes?.data || []
-  const { data: settingsRes } = useSWR("/api/clinic-settings", (url: string) => fetch(url).then(r => r.json()))
+  const { data: settingsRes } = useSWR(viewMode === "week" ? "/api/clinic-settings" : null, (url: string) => fetch(url).then(r => r.json()))
   const closingHour: number = settingsRes?.data?.working_hours?.end
     ? parseInt(settingsRes.data.working_hours.end.split(":")[0])
     : DEFAULT_CLOSING_HOUR
@@ -239,6 +226,10 @@ export function AgendaView() {
     setNewAppointment({ patient_id: "", procedure_type: "Consulta", date: dateString, time: "", duration_minutes: 60, notes: "", doctor_name: "" })
     setFormError(null)
   }
+
+  const refreshAppointments = useCallback(async () => {
+    await Promise.all([mutate(), mutateWeek()])
+  }, [mutate, mutateWeek])
 
   const handleCreateAppointment = async () => {
     setFormError(null)
@@ -259,9 +250,9 @@ export function AgendaView() {
         status: "Pendente",
       } as any)
       toast.success("Consulta agendada com sucesso!")
+      if (viewMode === "day" && newAppointment.date === dateString) void mutate()
       setSelectedDate(new Date(`${newAppointment.date}T12:00:00`))
       setViewMode("day")
-      mutate()
       setIsDialogOpen(false)
       resetForm()
     } catch (err) {
@@ -276,24 +267,83 @@ export function AgendaView() {
   const handleUpdateStatus = useCallback(async (id: string, status: string) => {
     try {
       await updateAppointment(id, { status } as any)
-      mutate()
+      void refreshAppointments()
     } catch {
       toast.error("Erro ao atualizar status")
     }
-  }, [mutate])
+  }, [refreshAppointments])
 
   const moveAppointment = async (id: string, date: string, time: string) => {
     const item = weekAppointments.find(a => a.id === id)
-    if (!item || movingBusy) return
+    if (!item || movingBusy) return false
     setMovingId(null)
-    if (item.date === date && item.time.slice(0, 5) === time) return
+    if (item.date === date && item.time.slice(0, 5) === time) return true
+    setDetailError(null)
     setMovingBusy(true)
     try {
       await updateAppointment(id, { date, time } as any)
-      await Promise.all([mutateWeek(), mutate()])
+      await refreshAppointments()
       toast.success(`Consulta remarcada para ${date.split("-").reverse().join("/")} às ${time}.`)
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível remarcar. Confira o horário.") }
+      return true
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Não foi possível remarcar. Confira o horário."
+      if (detailsId === id) setDetailError(message)
+      toast.error(message)
+      return false
+    }
     finally { setMovingBusy(false) }
+  }
+
+  const openDetails = (appointment: any) => {
+    setDetailsId(appointment.id)
+    setDetailDate(appointment.date)
+    setDetailTime(appointment.time.slice(0, 5))
+    setDetailProcedure(appointment.procedure_type || "Consulta")
+    setDetailDoctor(appointment.doctor_name || "")
+    setDetailError(null)
+  }
+
+  const saveAppointmentDetails = async () => {
+    if (!detailAppointment || movingBusy) return
+    const procedure = detailProcedure.trim()
+    const doctor = detailDoctor.trim()
+    if (!procedure || doctor.length < 2 || !detailDate || !detailTime) {
+      setDetailError("Informe procedimento, dentista, data e horário válidos.")
+      return
+    }
+    const changes: Record<string, string> = {}
+    if (procedure !== detailAppointment.procedure_type) changes.procedure_type = procedure
+    if (doctor !== detailAppointment.doctor_name) changes.doctor_name = doctor
+    if (detailDate !== detailAppointment.date) changes.date = detailDate
+    if (detailTime !== detailAppointment.time.slice(0, 5)) changes.time = detailTime
+    if (!Object.keys(changes).length) { setDetailsId(null); return }
+    setDetailError(null)
+    setMovingBusy(true)
+    try {
+      await updateAppointment(detailAppointment.id, changes as any)
+      await refreshAppointments()
+      toast.success("Consulta atualizada.")
+      setDetailsId(null)
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : "Não foi possível atualizar a consulta.")
+    } finally {
+      setMovingBusy(false)
+    }
+  }
+
+  const scheduleAgain = (appointment: any) => {
+    setNewAppointment({
+      patient_id: appointment.patient_id,
+      procedure_type: appointment.procedure_type || "Consulta",
+      date: toLocalDateString(new Date()),
+      time: "",
+      duration_minutes: Number(appointment.duration_minutes) || 60,
+      notes: "",
+      doctor_name: appointment.doctor_name || "",
+    })
+    setDetailsId(null)
+    setFormError(null)
+    setIsDialogOpen(true)
   }
 
   // Iniciar: atualiza status e redireciona para prontuário
@@ -321,7 +371,7 @@ export function AgendaView() {
         : `Cancelado: ${cancelReason}`
       await updateAppointment(cancelTarget.id, { status: "Cancelada", notes } as any)
       toast.success("Consulta cancelada.")
-      mutate()
+      void refreshAppointments()
       setCancelTarget(null)
     } catch {
       toast.error("Erro ao cancelar.")
@@ -335,11 +385,6 @@ export function AgendaView() {
     date.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" })
   const formatWeekday = (date: Date) =>
     date.toLocaleDateString("pt-BR", { weekday: "long" })
-  const formatShortWeekday = (date: Date) =>
-    date.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "")
-  const formatMonthYear = (date: Date) =>
-    date.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
-
   const navigateDate = (direction: "prev" | "next") => {
     const delta = direction === "next" ? 1 : -1
     if (viewMode === "custom") {
@@ -354,7 +399,7 @@ export function AgendaView() {
     const d = new Date(selectedDate)
     if (viewMode === "day") d.setDate(d.getDate() + delta)
     else if (viewMode === "week") d.setDate(d.getDate() + delta * 7)
-    else d.setMonth(d.getMonth() + delta)
+    else d.setDate(d.getDate() + delta * 7)
     setSelectedDate(d)
   }
 
@@ -378,7 +423,7 @@ export function AgendaView() {
     ? `${formatDisplayDate(selectedDate)} · ${formatWeekday(selectedDate)}`
     : viewMode === "week"
     ? `${weekDays[0].getDate()} – ${weekDays[6].getDate()} de ${weekDays[6].toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}`
-    : viewMode === "month" ? formatMonthYear(selectedDate) : `${customStart.split("-").reverse().join("/")} – ${customEnd.split("-").reverse().join("/")}`
+    : `${customStart.split("-").reverse().join("/")} – ${customEnd.split("-").reverse().join("/")}`
 
   if (error) {
     return (
@@ -390,42 +435,43 @@ export function AgendaView() {
   }
 
   const WeekView = () => {
-    const workingStart = Number(settingsRes?.data?.working_hours?.start?.split(":")[0] ?? 7)
+    if (!settingsRes || !weekData) return <div className="flex h-48 items-center justify-center" role="status"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /><span className="sr-only">Carregando agenda</span></div>
+    const workingStart = Number(settingsRes.data?.working_hours?.start?.split(":")[0] ?? 8)
     const firstHour = Math.max(0, Math.min(workingStart, ...weekAppointments.map(a => Number(a.time?.slice(0, 2) || 7))))
     const lastHour = Math.min(24, Math.max(closingHour, ...weekAppointments.map(a => Math.ceil((timeToMinutes(a.time) + (Number(a.duration_minutes) || 60)) / 60))))
     const slotMinutes = 15
-    const slotHeight = 24
+    const slotHeight = 42
     const slots = Array.from({ length: Math.max(1, (lastHour - firstHour) * 60 / slotMinutes) }, (_, i) => formatMinutes(firstHour * 60 + i * slotMinutes))
     const gridHeight = slots.length * slotHeight
 
     return <div className="overflow-x-auto overscroll-x-contain" aria-label="Agenda semanal">
       <div className="flex w-max min-w-full">
-        <div className="sticky left-0 z-20 w-12 shrink-0 bg-card shadow-[1px_0_0_0_var(--border)]">
+        <div className="sticky left-0 z-20 w-16 shrink-0 bg-card shadow-[1px_0_0_0_var(--border)]">
           <div className="h-12 border-b border-border bg-card" />
           <div className="relative" style={{ height: gridHeight }}>
-            {slots.map((slot, index) => <span key={slot} className={`absolute right-2 text-[11px] text-muted-foreground ${index % 4 ? "opacity-70" : "font-medium"}`} style={{ top: index * slotHeight - 7 }}>{slot}</span>)}
+            {slots.map((slot, index) => <span key={slot} className={`absolute right-2 text-xs text-muted-foreground ${index % 4 ? "opacity-80" : "font-semibold"}`} style={{ top: index * slotHeight + 3 }}>{slot}</span>)}
           </div>
         </div>
         {weekDays.map(day => {
           const ds = toLocalDateString(day)
           const dayAppointments = layoutAppointments(weekAppointments.filter(a => a.date === ds))
-          return <div key={ds} className="w-[216px] shrink-0 border-l border-border/70 sm:w-[232px] lg:flex-1 lg:min-w-[176px]">
-            <button type="button" onClick={() => { setSelectedDate(day); setViewMode("day") }} className={`sticky top-0 z-10 flex h-12 w-full items-center justify-center gap-2 border-b border-border text-sm font-semibold capitalize ${ds === todayString ? "bg-primary/10 text-primary" : "bg-card text-foreground hover:bg-muted/70"}`}>
-              <span>{formatShortWeekday(day)}</span><span className={`grid size-7 place-items-center rounded-full ${ds === todayString ? "bg-primary text-primary-foreground" : ""}`}>{day.getDate()}</span>
+          return <div key={ds} className={`w-[216px] shrink-0 border-l border-border/70 sm:w-[232px] lg:flex-1 lg:min-w-[176px] ${ds === dateString ? "bg-primary/[0.06]" : ""}`}>
+            <button type="button" aria-pressed={ds === dateString} onClick={() => setSelectedDate(day)} className={`sticky top-0 z-10 flex h-12 w-full flex-col items-center justify-center border-b border-border text-sm font-semibold capitalize ${ds === dateString ? "bg-primary/15 text-primary ring-2 ring-inset ring-primary" : "bg-card text-foreground hover:bg-muted/70"}`}>
+              <span>{formatWeekday(day)}</span><span className="text-xs font-medium">{day.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" })}</span>
             </button>
             <div className="relative" style={{ height: gridHeight }}>
               {slots.map((slot, index) => <button key={slot} type="button" aria-label={`${day.toLocaleDateString("pt-BR")} às ${slot}`} onDragOver={event => { if (movingId) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (movingId) void moveAppointment(movingId, ds, slot) }} onClick={() => { if (movingId) void moveAppointment(movingId, ds, slot) }} className={`absolute inset-x-0 border-t text-left transition-colors ${index % 4 ? "border-border/35" : "border-border/70"} ${movingId ? "cursor-pointer hover:bg-primary/10" : "hover:bg-muted/40"}`} style={{ top: index * slotHeight, height: slotHeight }} />)}
               {dayAppointments.map(({ appointment: appt, column, columns }) => {
                 const start = timeToMinutes(appt.time)
                 const duration = Math.max(15, Number(appt.duration_minutes) || 60)
-                const canMove = !["Concluída", "Cancelada", "Falta", "Em Andamento"].includes(appt.status)
+                const canMove = !NON_RESCHEDULABLE_STATUSES.includes(appt.status)
                 const compact = duration < 45
                 const singleLine = duration < 30
                 const width = 100 / columns
-                return <button key={appt.id} type="button" draggable={canMove} onDragStart={event => { event.dataTransfer.effectAllowed = "move"; setMovingId(appt.id) }} onDragEnd={() => setMovingId(null)} onClick={() => { if (canMove) setMovingId(movingId === appt.id ? null : appt.id) }} aria-label={`${appt.patient?.full_name || "Paciente"}, ${formatTime(appt.time)} a ${formatMinutes(start + duration)}, ${appt.doctor_name || "dentista não informado"}. ${appt.status || ""}`} title={`${appt.patient?.full_name || "Paciente"} · ${formatTime(appt.time)}–${formatMinutes(start + duration)} · ${appt.doctor_name || ""}`} className={`absolute z-[1] overflow-hidden rounded-md border-l-4 px-2 ${singleLine ? "py-0.5" : "py-1.5"} text-left shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-primary ${appointmentColor(appt.doctor_name || appt.patient?.full_name || "")} ${movingId === appt.id ? "ring-2 ring-primary ring-offset-1" : ""} ${["Cancelada", "Falta"].includes(appt.status) ? "opacity-50" : ""}`} style={{ top: Math.max(0, ((start - firstHour * 60) / slotMinutes) * slotHeight + 2), height: Math.max(singleLine ? 20 : 35, duration / slotMinutes * slotHeight - 4), left: `calc(${column * width}% + 4px)`, width: `calc(${width}% - 8px)` }}>
-                  {!singleLine && <span className="block truncate text-[11px] font-semibold leading-tight">{formatTime(appt.time)}–{formatMinutes(start + duration)}</span>}
-                  <strong className={`block truncate text-xs leading-tight ${singleLine ? "" : compact ? "mt-0.5" : "mt-1"}`}>{appt.patient?.full_name || "Paciente"}</strong>
-                  {!compact && <span className="mt-1 block truncate text-[11px] leading-tight opacity-80">{appt.doctor_name || appt.procedure_type || "Consulta"}</span>}
+                return <button key={appt.id} type="button" draggable={canMove} onDragStart={event => { event.dataTransfer.effectAllowed = "move"; setMovingId(appt.id) }} onDragEnd={() => setMovingId(null)} onClick={() => openDetails(appt)} aria-label={`${appt.patient?.full_name || "Paciente"}, ${formatTime(appt.time)} a ${formatMinutes(start + duration)}, ${appt.doctor_name || "dentista não informado"}. ${appt.status || ""}`} className={`absolute z-[1] overflow-hidden rounded-md border-l-4 px-2 ${singleLine ? "py-0.5" : "py-1.5"} text-left shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-primary ${appointmentColor(appt.doctor_name || appt.patient?.full_name || "")} ${movingId === appt.id ? "ring-2 ring-primary ring-offset-1" : ""} ${["Cancelada", "Falta"].includes(appt.status) ? "opacity-50" : ""}`} style={{ top: Math.max(0, ((start - firstHour * 60) / slotMinutes) * slotHeight + 2), height: Math.max(singleLine ? 20 : 35, duration / slotMinutes * slotHeight - 4), left: `calc(${column * width}% + 4px)`, width: `calc(${width}% - 8px)` }}>
+                  {!singleLine && <span className="block truncate text-xs font-semibold leading-tight">{formatTime(appt.time)}–{formatMinutes(start + duration)}</span>}
+                  <strong className={`block truncate text-sm leading-tight ${singleLine ? "" : compact ? "mt-0.5" : "mt-1"}`}>{appt.patient?.full_name || "Paciente"}</strong>
+                  {!compact && <span className="mt-1 block truncate text-xs leading-tight opacity-80">{appt.doctor_name || appt.procedure_type || "Consulta"}</span>}
                 </button>
               })}
             </div>
@@ -433,49 +479,6 @@ export function AgendaView() {
         })}
       </div>
     </div>
-  }
-
-  const MonthView = () => {
-    const weekdayLabels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
-    return (
-      <div>
-        <div className="grid grid-cols-7 gap-1 mb-1">
-          {weekdayLabels.map(d => (
-            <div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">{d}</div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-1">
-          {monthDays.map((day, idx) => {
-            if (!day) return <div key={`empty-${idx}`} />
-            const ds = toLocalDateString(day)
-            const isToday = ds === todayString
-            const isPast = ds < todayString
-            const dayAppts = monthAppointments.filter((a: any) => a.date === ds)
-            return (
-              <button key={ds} onClick={() => { setSelectedDate(day); setViewMode("day") }}
-                className={`rounded-lg p-1.5 text-left transition-colors min-h-[64px] hover:bg-muted ${
-                  isToday ? "bg-primary/10 border border-primary ring-1 ring-primary/40"
-                  : isPast ? "bg-muted/20 opacity-60" : "bg-muted/30"
-                }`}>
-                <div className={`text-sm font-semibold mb-1 ${isToday ? "text-primary" : isPast ? "text-muted-foreground" : "text-foreground"}`}>
-                  {day.getDate()}
-                </div>
-                {dayAppts.length > 0 && (
-                  <div className="flex flex-col gap-0.5">
-                    {dayAppts.slice(0, 2).map((appt: any) => (
-                      <div key={appt.id} className="rounded bg-primary/20 px-1 text-xs text-foreground truncate">
-                        {formatTime(appt.time)} {appt.patient?.full_name?.split(" ")[0] || ""}
-                      </div>
-                    ))}
-                    {dayAppts.length > 2 && <div className="text-xs text-primary font-medium">+{dayAppts.length - 2}</div>}
-                  </div>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-    )
   }
 
   // ── Status/ação de uma consulta — usado tanto na linha da tabela quanto no card mobile ──
@@ -619,9 +622,9 @@ export function AgendaView() {
       </div>
 
       {/* Navegação */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <Card className="py-2">
+        <CardContent className="px-3 py-1">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <Button variant="outline" size="icon" className="bg-transparent shrink-0" onClick={() => navigateDate("prev")}>
                 <ChevronLeft className="h-4 w-4" />
@@ -636,11 +639,11 @@ export function AgendaView() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex gap-2">
-                 {(["day", "week", "month"] as const).map((mode) => (
+                 {(["day", "week"] as const).map((mode) => (
                   <Button key={mode} variant={viewMode === mode ? "default" : "outline"} size="sm"
                     aria-pressed={viewMode === mode}
                     onClick={() => setViewMode(mode)} className={viewMode !== mode ? "bg-transparent" : ""}>
-                     {mode === "day" ? "Dia" : mode === "week" ? "Semana" : "Mês"}
+                     {mode === "day" ? "Dia" : "Semana"}
                   </Button>
                 ))}
               </div>
@@ -687,13 +690,13 @@ export function AgendaView() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="grid gap-2">
-                        <Label>Horário *</Label>
-                        <Input type="time" value={newAppointment.time}
+                        <Label htmlFor="appointment-time">Horário *</Label>
+                        <Input id="appointment-time" type="time" value={newAppointment.time}
                           onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })} />
                       </div>
                       <div className="grid gap-2">
-                        <Label>Duração (min)</Label>
-                        <Input type="number" min={1} value={newAppointment.duration_minutes}
+                        <Label htmlFor="appointment-duration">Duração (min)</Label>
+                        <Input id="appointment-duration" type="number" min={1} value={newAppointment.duration_minutes}
                           onChange={(e) => setNewAppointment({ ...newAppointment, duration_minutes: Math.max(1, parseInt(e.target.value) || 60) })} />
                       </div>
                     </div>
@@ -751,6 +754,44 @@ export function AgendaView() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!detailsId} onOpenChange={open => { if (!open) setDetailsId(null) }}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[480px]">
+          {detailAppointment && <>
+            <DialogHeader>
+              <DialogTitle>{detailAppointment.patient?.full_name || "Paciente"}</DialogTitle>
+              <DialogDescription>Consulta em {new Date(`${detailAppointment.date}T12:00:00`).toLocaleDateString("pt-BR")} às {formatTime(detailAppointment.time)}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 text-sm">
+              <div className="flex items-center gap-3"><span className="font-medium">Status</span>{StatusSelector({ appointment: detailAppointment })}</div>
+              {NON_RESCHEDULABLE_STATUSES.includes(detailAppointment.status) ? <div className="space-y-3 rounded-md border p-3">
+                <p><strong>Procedimento:</strong> {detailAppointment.procedure_type || "Consulta"}</p>
+                <p><strong>Dentista:</strong> {detailAppointment.doctor_name || "—"}</p>
+                <p>Esta consulta está {detailAppointment.status.toLowerCase()} e seu horário faz parte do histórico. Agende uma nova consulta para este paciente.</p>
+                <Button onClick={() => scheduleAgain(detailAppointment)}>Agendar novamente</Button>
+              </div> : <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2"><Label htmlFor="detail-procedure">Procedimento</Label><Input id="detail-procedure" value={detailProcedure} maxLength={200} onChange={event => setDetailProcedure(event.target.value)} /></div>
+                  <div className="space-y-2"><Label htmlFor="detail-doctor">Dentista</Label><Input id="detail-doctor" value={detailDoctor} maxLength={160} onChange={event => setDetailDoctor(event.target.value)} /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2"><Label htmlFor="detail-date">Data</Label><Input id="detail-date" type="date" value={detailDate} onChange={event => setDetailDate(event.target.value)} /></div>
+                  <div className="space-y-2"><Label htmlFor="detail-time">Horário</Label><Input id="detail-time" type="time" step={900} value={detailTime} onChange={event => setDetailTime(event.target.value)} /></div>
+                </div>
+                {detailError && <p role="alert" className="text-destructive">{detailError}</p>}
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" disabled={movingBusy} onClick={() => void saveAppointmentDetails()}>Salvar alterações</Button>
+                  <Button variant="outline" onClick={() => { setMovingId(detailAppointment.id); setDetailsId(null) }}>Escolher na grade</Button>
+                </div>
+              </>}
+              {detailAppointment.notes && <p><strong>Observações:</strong> {detailAppointment.notes}</p>}
+            </div>
+            <DialogFooter>
+              {AppointmentActionButton({ appointment: detailAppointment })}
+            </DialogFooter>
+          </>}
+        </DialogContent>
+      </Dialog>
+
       {/* Modal de cancelamento */}
       <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null) }}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:w-full sm:max-w-[400px]">
@@ -803,16 +844,15 @@ export function AgendaView() {
 
       {/* Views */}
       {viewMode === "week" && (
-        <Card className="overflow-hidden">
-          <CardContent className="p-0">{WeekView()}</CardContent>
-        </Card>
-      )}
-
-      {viewMode === "month" && (
-        <Card>
-          <CardHeader className="pb-3"><CardTitle className="text-base capitalize">{formatMonthYear(selectedDate)}</CardTitle></CardHeader>
-          <CardContent>{MonthView()}</CardContent>
-        </Card>
+        <>
+          {movingId && <div role="status" className="flex items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/10 p-3 text-sm">
+            <span>Escolha na grade o novo horário da consulta.</span>
+            <Button size="sm" variant="outline" onClick={() => setMovingId(null)}>Cancelar</Button>
+          </div>}
+          <Card className="overflow-hidden">
+            <CardContent className="p-0">{WeekView()}</CardContent>
+          </Card>
+        </>
       )}
 
       {viewMode === "custom" && <Card><CardHeader><CardTitle className="text-base">Consultas do período</CardTitle></CardHeader><CardContent className="space-y-2">{customStart > customEnd ? <p>Escolha uma data final igual ou posterior à inicial.</p> : customAppointments.length ? customAppointments.map(appt => <div key={appt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"><div><strong>{appt.date.split("-").reverse().join("/")} · {formatTime(appt.time)}</strong><p>{appt.patient?.full_name || "Paciente"} · {appt.doctor_name}</p></div><Button size="sm" variant="outline" onClick={() => { setSelectedDate(new Date(`${appt.date}T12:00:00`)); setViewMode("day") }}>Ver dia</Button></div>) : <p className="text-muted-foreground">Nenhuma consulta neste período.</p>}</CardContent></Card>}

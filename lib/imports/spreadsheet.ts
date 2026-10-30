@@ -1,8 +1,10 @@
 import ExcelJS from "exceljs"
+import { importFieldLabels } from "./fields"
 
 export type ImportKind = "patients" | "records" | "exams"
-export type ImportRow = { line: number; values: Record<string, string>; extras: Record<string, string> }
+export type ImportRow = { line: number; values: Record<string, string>; extras: Record<string, string>; references?: string[] }
 export type ImportSheet = { kind: ImportKind; rows: ImportRow[]; unmapped: string[] }
+export type ColumnMappings = Partial<Record<ImportKind, Record<string, string>>>
 
 const aliases: Record<ImportKind, Record<string, string[]>> = {
   patients: {
@@ -17,26 +19,36 @@ const aliases: Record<ImportKind, Record<string, string[]>> = {
     allergies: ["alergias", "alergia", "allergies"],
     pre_existing_conditions: ["doencas", "condicoes preexistentes", "condicoes medicas", "pre existing conditions"],
     medications: ["medicamentos", "medicacoes", "medications"],
-    notes: ["observacoes", "observacao", "notas", "notes"],
-    clinical_notes: ["prontuario", "historico clinico", "anamnese", "clinical notes", "medical history"],
+    notes: ["observacoes", "observacao", "notas", "notes", "convenio", "plano odontologico", "plano de saude", "insurance", "observacoes adicionais"],
+    clinical_notes: ["prontuario", "historico clinico", "anamnese", "evolucao", "clinical notes", "medical history"],
+    inline_record_id: ["id prontuario", "id do prontuario", "prontuario id"],
+    inline_record_date: ["data atendimento", "data do atendimento", "data consulta", "appointment date"],
+    inline_record_doctor: ["profissional", "dentista", "profissional atendimento", "doctor name"],
+    inline_record_procedure: ["procedimento", "procedimento realizado", "treatment"],
+    inline_exam_id: ["id exame", "id do exame"],
+    inline_exam_date: ["data exame", "data do exame"],
+    inline_exam_type: ["tipo exame", "tipo do exame"],
+    inline_exam_description: ["descricao exame", "descricao do exame"],
+    inline_exam_result: ["resultado exame", "resultado do exame", "laudo exame"],
     exam_title: ["exame", "titulo exame", "exam title"],
-    exam_file: ["arquivo exame", "arquivo do exame", "exam file"],
+    exam_file: ["arquivo", "nome arquivo", "arquivo exame", "arquivo do exame", "exam file"],
   },
   records: {
     source_id: ["id", "id prontuario", "codigo", "record id"],
-    patient_ref: ["id paciente", "id_paciente", "codigo paciente", "paciente id", "patient id", "cpf paciente", "cpf", "patient ref"],
+    patient_ref: ["id paciente", "id_paciente", "codigo paciente", "paciente id", "nome paciente", "paciente", "patient id", "cpf paciente", "cpf", "patient ref"],
     title: ["titulo", "titulo prontuario", "title"],
-    content: ["conteudo", "descricao", "detalhes clinicos", "evolucao", "prontuario", "anamnese", "content"],
+    content: ["conteudo", "descricao", "observacoes", "procedimento", "detalhes clinicos", "evolucao", "prontuario", "anamnese", "content"],
     record_type: ["tipo", "tipo registro", "record type"],
-    record_date: ["data", "data registro", "record date"],
+    record_date: ["data", "data registro", "data atendimento", "data do atendimento", "record date"],
     doctor_name: ["profissional", "dentista", "doctor", "doctor name"],
   },
   exams: {
     source_id: ["id", "id exame", "codigo", "exam id"],
-    patient_ref: ["id paciente", "id_paciente", "codigo paciente", "paciente id", "patient id", "cpf paciente", "cpf", "patient ref"],
+    patient_ref: ["id paciente", "id_paciente", "codigo paciente", "paciente id", "nome paciente", "paciente", "patient id", "cpf paciente", "cpf", "patient ref"],
     title: ["titulo", "nome exame", "exame", "title"],
+    exam_date: ["data exame", "data do exame", "exam date"],
     exam_type: ["tipo", "tipo exame", "exam type"],
-    description: ["descricao", "observacoes", "laudo", "resultado", "description"],
+    description: ["descricao", "descricao exame", "descricao do exame", "observacoes", "laudo", "resultado", "resultado exame", "resultado do exame", "description"],
     file_name: ["arquivo", "nome arquivo", "arquivo exame", "file", "file name"],
   },
 }
@@ -110,26 +122,35 @@ export function checkXlsxArchive(bytes: Uint8Array) {
   if (offset !== view.getUint32(end + 16, true) + size) throw new Error("Arquivo Excel inválido.")
 }
 
-function mapRows(kind: ImportKind, matrix: string[][]): ImportSheet {
+function mapRows(kind: ImportKind, matrix: string[][], mappings: ColumnMappings): ImportSheet {
   if (matrix.length < 2) throw new Error(`A aba de ${kind} precisa de cabeçalho e pelo menos uma linha.`)
   const headers = matrix[0].map(header => header.trim())
   const nonEmptyHeaders = headers.map(normalizeHeader).filter(Boolean)
   if (new Set(nonEmptyHeaders).size !== nonEmptyHeaders.length) throw new Error(`A aba de ${kind} tem cabeçalhos duplicados.`)
   const lookup = new Map(Object.entries(aliases[kind]).flatMap(([field, names]) => names.map(name => [normalizeHeader(name), field] as const)))
-  const fields = headers.map(header => lookup.get(normalizeHeader(header)))
-  const mapped = fields.filter(Boolean)
-  if (new Set(mapped).size !== mapped.length) throw new Error(`A aba de ${kind} tem colunas equivalentes duplicadas.`)
-  if (kind === "patients" && !mapped.includes("full_name")) throw new Error("A planilha de pacientes precisa de uma coluna Nome.")
-  if (kind !== "patients" && !mapped.includes("patient_ref")) throw new Error(`A aba de ${kind} precisa de uma coluna ID paciente ou CPF paciente.`)
+  const fields = headers.map(header => {
+    const normalizedHeader = normalizeHeader(header)
+    const chosen = mappings[kind]?.[header] ?? mappings[kind]?.[normalizedHeader]
+    if (chosen && chosen !== "extra" && !Object.hasOwn(importFieldLabels[kind], chosen)) throw new Error(`Mapeamento inválido para a coluna ${header}.`)
+    return chosen === "extra" ? undefined : chosen || lookup.get(normalizedHeader)
+  })
   const rows = matrix.slice(1).filter(row => row.some(Boolean)).map((row, index) => {
-    const values: Record<string, string> = {}, extras: Record<string, string> = {}
+    const values: Record<string, string> = {}, extras: Record<string, string> = {}, origins: Record<string, string> = {}
+    const references: string[] = []
     headers.forEach((header, column) => {
       const value = (row[column] || "").trim()
       if (!value) return
-      if (fields[column]) values[fields[column]!] = value
-      else if (header) extras[header] = value
+      const field = fields[column]
+      if (!field) { if (header) extras[header] = value; return }
+      if (field === "patient_ref") references.push(value)
+      if (!values[field]) { values[field] = value; origins[field] = header; return }
+      if (field === "patient_ref" || values[field] === value) return
+      if (["source_id", "full_name", "file_name"].includes(field)) {
+        throw new Error(`A aba de ${kind}, linha ${index + 2}: ${origins[field]} e ${header} têm valores diferentes para o mesmo campo.`)
+      }
+      extras[header] = value
     })
-    return { line: index + 2, values, extras }
+    return { line: index + 2, values, extras, references }
   })
   return { kind, rows, unmapped: headers.filter((header, index) => header && !fields[index]) }
 }
@@ -142,10 +163,10 @@ function inferKind(name: string): ImportKind | null {
   return null
 }
 
-export async function readSpreadsheet(file: File, fallback: ImportKind): Promise<ImportSheet[]> {
+export async function readSpreadsheet(file: File, fallback: ImportKind, mappings: ColumnMappings = {}): Promise<ImportSheet[]> {
   if (file.size > 10 * 1024 * 1024) throw new Error(`${file.name}: máximo de 10 MB por planilha.`)
   const name = file.name.toLowerCase()
-  if (name.endsWith(".csv")) return [mapRows(fallback, parseCsv(await file.text()))]
+  if (name.endsWith(".csv")) return [mapRows(fallback, parseCsv(await file.text()), mappings)]
   if (!name.endsWith(".xlsx")) throw new Error(`${file.name}: use CSV ou Excel .xlsx.`)
   const bytes = new Uint8Array(await file.arrayBuffer())
   checkXlsxArchive(bytes)
@@ -165,7 +186,7 @@ export async function readSpreadsheet(file: File, fallback: ImportKind): Promise
       matrix.push(cells)
       if (matrix.length > 1001) throw new Error("Máximo de 1.000 linhas por aba.")
     })
-    if (matrix.length) sheets.push(mapRows(kind, matrix))
+    if (matrix.length) sheets.push(mapRows(kind, matrix, mappings))
   })
   if (!sheets.length) throw new Error(`${file.name}: nenhuma aba com dados reconhecida.`)
   return sheets

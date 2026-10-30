@@ -39,14 +39,14 @@ export function useDashboard() {
 }
 
 // Patients
-export function usePatients(search?: string, status?: string, cpf?: string) {
+export function usePatients(search?: string, status?: string, cpf?: string, enabled = true) {
   const params = new URLSearchParams()
   if (search) params.set("search", search)
   if (status) params.set("status", status)
   if (cpf) params.set("cpf", cpf)
   
   const { data, error, isLoading, mutate } = useSWR(
-    `/api/patients?${params.toString()}`,
+    enabled ? `/api/patients?${params.toString()}` : null,
     fetcher
   )
   return {
@@ -73,6 +73,7 @@ export function usePatient(id: string | null) {
 
 // Appointments
 export function useAppointments(options?: {
+  enabled?: boolean
   date?: string
   startDate?: string
   endDate?: string
@@ -87,7 +88,7 @@ export function useAppointments(options?: {
   if (options?.patientId) params.set("patientId", options.patientId)
   
   const { data, error, isLoading, mutate } = useSWR(
-    `/api/appointments?${params.toString()}`,
+    options?.enabled === false ? null : `/api/appointments?${params.toString()}`,
     fetcher
   )
   return {

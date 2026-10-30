@@ -103,7 +103,6 @@ export const clinicSettingsSchema = z.object({
   phone: nullableText(30),
   email: z.string().email().max(254).nullable().optional().or(z.literal("")),
   website: nullableText(500),
-  logo_url: nullableText(2000),
   working_hours: z.object({
     start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
     end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),

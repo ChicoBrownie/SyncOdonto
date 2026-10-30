@@ -39,6 +39,7 @@ const emptyForm = {
   allergies: "",
   pre_existing_conditions: "",
   medications: "",
+  notes: "",
   guardian_name: "", 
   guardian_cpf: "",
   tags: [] as string[], 
@@ -78,6 +79,7 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
        allergies: patient.allergies || "",
       pre_existing_conditions: (patient as any).pre_existing_conditions || "",
       medications: (patient as any).medications || "",
+      notes: patient.notes || "",
       guardian_name: (patient as any).guardian_name || "",
       guardian_cpf: (patient as any).guardian_cpf || "",
       tags: patientTags,
@@ -292,6 +294,11 @@ export function PatientTable({ searchQuery, activeTab }: PatientTableProps) {
                   onBlur={() => setForm(current => ({ ...current, address: capitalizeWords(current.address) }))}
                   placeholder="Rua, número, bairro, cidade - UF, CEP"
                   rows={2} />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="patient-notes">Observações e dados importados</Label>
+                <Textarea id="patient-notes" value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="Informações adicionais do paciente ou do sistema anterior" rows={4} maxLength={5000} />
               </div>
 
               {/* Tags */}

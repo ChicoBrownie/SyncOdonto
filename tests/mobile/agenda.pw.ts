@@ -11,14 +11,17 @@ test("agenda semanal permite tocar na consulta e escolher outro horário", async
   const wednesday = new Date(monday); wednesday.setDate(monday.getDate() + 2)
   const iso = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
   const mondayISO = iso(monday), wednesdayISO = iso(wednesday)
-  const appointment = { id: "66666666-6666-4666-8666-666666666666", patient_id: "44444444-4444-4444-8444-444444444444", date: mondayISO, time: "09:00:00", duration_minutes: 60, doctor_name: "Bruno", status: "Pendente", patient: { full_name: "Gilson" } }
-  const patches: { date: string; time: string }[] = []
+  const appointment = { id: "66666666-6666-4666-8666-666666666666", patient_id: "44444444-4444-4444-8444-444444444444", date: mondayISO, time: "09:00:00", duration_minutes: 60, procedure_type: "Consulta", doctor_name: "Bruno", status: "Pendente", patient: { full_name: "Gilson" } }
+  const patches: Partial<Pick<typeof appointment, "date" | "time" | "procedure_type" | "doctor_name">>[] = []
   const created: { date: string; time: string; patient_id: string }[] = []
   await page.route("**/api/**", async route => {
     const url = new URL(route.request().url())
     const send = (data: unknown) => route.fulfill({ contentType: "application/json", body: JSON.stringify(data) })
+    if (url.pathname === "/api/auth/check-access") {
+      return send({ access_role: "gestor", permissions: { financeiro: true, configuracoes: true, relatorios: true } })
+    }
     if (url.pathname === `/api/appointments/${appointment.id}` && route.request().method() === "PATCH") {
-      const change = route.request().postDataJSON() as { date: string; time: string }
+      const change = route.request().postDataJSON() as typeof patches[number]
       patches.push(change); Object.assign(appointment, change)
       return send({ data: appointment })
     }
@@ -38,9 +41,24 @@ test("agenda semanal permite tocar na consulta e escolher outro horário", async
   await expect(page.getByRole("button", { name: "Semana" })).toHaveAttribute("aria-pressed", "true")
   await expect(page.getByText("Visão Semanal")).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Período" })).toHaveCount(0)
+  const importLink = page.locator("aside").last().getByRole("link", { name: "Importar dados" })
+  await expect(importLink).toHaveCount(1)
+  const dayHeader = page.getByRole("button", { name: new RegExp(wednesday.toLocaleDateString("pt-BR", { weekday: "long" }), "i") })
+  await dayHeader.click()
+  await expect(dayHeader).toHaveAttribute("aria-pressed", "true")
+  await expect(page.getByRole("button", { name: "Semana" })).toHaveAttribute("aria-pressed", "true")
+  await expect(page.getByLabel("Agenda semanal")).toBeVisible()
+  await expect(importLink).toHaveCount(1)
   await page.getByRole("button", { name: /Gilson, 09:00.*Bruno/ }).click()
+  await expect(page.getByRole("dialog")).toContainText("Gilson")
+  await page.getByRole("dialog").getByLabel("Procedimento").fill("Limpeza")
+  await page.getByRole("dialog").getByLabel("Dentista").fill("Bruno Silva")
+  await page.getByRole("button", { name: "Salvar alterações" }).click()
+  await expect.poll(() => patches).toEqual([{ procedure_type: "Limpeza", doctor_name: "Bruno Silva" }])
+  await page.getByRole("button", { name: /Gilson, 09:00.*Bruno Silva/ }).click()
+  await page.getByRole("button", { name: "Escolher na grade" }).click()
   await page.getByRole("button", { name: `${wednesday.toLocaleDateString("pt-BR")} às 13:00` }).click()
-  await expect.poll(() => patches).toEqual([{ date: wednesdayISO, time: "13:00" }])
+  await expect.poll(() => patches).toEqual([{ procedure_type: "Limpeza", doctor_name: "Bruno Silva" }, { date: wednesdayISO, time: "13:00" }])
   await expect(page.getByText(/Consulta remarcada/)).toBeVisible()
 
   await page.getByRole("button", { name: "Escolher data ou intervalo" }).click()
@@ -58,4 +76,13 @@ test("agenda semanal permite tocar na consulta e escolher outro horário", async
   await dialog.getByPlaceholder("Nome do dentista (obrigatório)").fill("Bruno")
   await dialog.getByRole("button", { name: "Agendar", exact: true }).click()
   await expect.poll(() => created).toMatchObject([{ date: mondayISO, time: "14:30", patient_id: appointment.patient_id }])
+
+  appointment.status = "Concluída"
+  await page.getByRole("button", { name: "Semana" }).click()
+  await page.getByRole("button", { name: /Gilson, 13:00.*Bruno Silva/ }).click()
+  await expect(page.getByRole("dialog")).toContainText("Esta consulta está concluída")
+  await expect(page.getByRole("button", { name: "Salvar alterações" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Ver dia" })).toHaveCount(0)
+  await page.getByRole("button", { name: "Agendar novamente" }).click()
+  await expect(page.getByRole("dialog").getByLabel("Dia da consulta *")).toBeVisible()
 })

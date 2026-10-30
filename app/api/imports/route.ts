@@ -3,7 +3,7 @@ import { getClinicScopedClient } from "@/lib/supabase/clinic-scope"
 import { recordAuditEvent } from "@/lib/security/audit"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { buildImportPlan, type ImportPlan } from "@/lib/imports/plan"
-import { readSpreadsheet, type ImportKind, type ImportSheet } from "@/lib/imports/spreadsheet"
+import { readSpreadsheet, type ColumnMappings, type ImportKind, type ImportSheet } from "@/lib/imports/spreadsheet"
 
 export const runtime = "nodejs"
 
@@ -26,6 +26,25 @@ function normalizeName(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/\s+/g, " ")
 }
 
+function readMappings(value: FormDataEntryValue | null): ColumnMappings {
+  if (!value) return {}
+  if (typeof value !== "string" || value.length > 12000) throw new Error("Mapeamento de colunas inválido.")
+  const parsed: unknown = JSON.parse(value)
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Mapeamento de colunas inválido.")
+  const mappings: ColumnMappings = {}
+  for (const kind of ["patients", "records", "exams"] as const) {
+    const columns = (parsed as Record<string, unknown>)[kind]
+    if (columns === undefined) continue
+    if (!columns || typeof columns !== "object" || Array.isArray(columns) || Object.keys(columns).length > 100) throw new Error("Mapeamento de colunas inválido.")
+    mappings[kind] = Object.create(null) as Record<string, string>
+    for (const [header, field] of Object.entries(columns)) {
+      if (header.length > 160 || typeof field !== "string" || field.length > 60) throw new Error("Mapeamento de colunas inválido.")
+      mappings[kind]![header] = field
+    }
+  }
+  return mappings
+}
+
 async function readExistingPatients(supabase: Db, ownerId: string): Promise<ExistingPatient[]> {
   const all: ExistingPatient[] = []
   for (let start = 0; start < 100000; start += 1000) {
@@ -35,6 +54,17 @@ async function readExistingPatients(supabase: Db, ownerId: string): Promise<Exis
     if ((data || []).length < 1000) return all
   }
   throw new Error("A clínica possui muitos pacientes para esta versão do importador.")
+}
+
+async function findCpfConflictsOutsideClinic(supabase: Db, ownerId: string, patients: ImportPlan["patients"]) {
+  const cpfs = Array.from(new Set(patients.map(patient => String(patient.data.cpf || "").trim()).filter(Boolean)))
+  const conflicts = new Set<string>()
+  for (let start = 0; start < cpfs.length; start += 100) {
+    const { data, error } = await supabase.from("patients").select("cpf,user_id").in("cpf", cpfs.slice(start, start + 100))
+    if (error) throw new Error("Não foi possível conferir CPFs já cadastrados.")
+    for (const row of data || []) if (row.user_id !== ownerId && row.cpf) conflicts.add(String(row.cpf).replace(/\D/g, ""))
+  }
+  return conflicts
 }
 
 function reconcile(plan: ImportPlan, existing: ExistingPatient[]) {
@@ -102,10 +132,11 @@ export async function POST(request: Request) {
 
   const saved = { patients: 0, records: 0, exams: 0 }
   try {
-    const sheets: ImportSheet[] = await readSpreadsheet(primary, "patients")
+    const mappings = readMappings(form.get("column_mappings"))
+    const sheets: ImportSheet[] = await readSpreadsheet(primary, "patients", mappings)
     for (const { kind, file } of others) {
       if (sheets.some(sheet => sheet.kind === kind)) throw new Error(`A aba de ${kind} foi enviada duas vezes.`)
-      const parsed = (await readSpreadsheet(file, kind)).filter(sheet => sheet.kind === kind)
+      const parsed = (await readSpreadsheet(file, kind, mappings)).filter(sheet => sheet.kind === kind)
       if (!parsed.length) throw new Error(`${file.name}: nenhuma aba de ${kind} encontrada.`)
       sheets.push(...parsed)
     }
@@ -119,7 +150,6 @@ export async function POST(request: Request) {
       if (names.has(name)) throw new Error(`Arquivo de exame repetido: ${file.name}`)
       names.set(name, file)
     }
-    for (const exam of plan.exams) if (exam.fileName && !names.has(exam.fileName.toLowerCase())) plan.errors.push(`Exames, linha ${exam.line}: arquivo ${exam.fileName} não foi selecionado.`)
     for (const file of examFiles) {
       if (!plan.exams.some(exam => exam.fileName?.toLowerCase() === file.name.toLowerCase())) plan.errors.push(`Arquivo ${file.name} não está referenciado na planilha.`)
       const bytes = new Uint8Array(await file.slice(0, 132).arrayBuffer())
@@ -127,16 +157,22 @@ export async function POST(request: Request) {
     }
     const existing = await readExistingPatients(supabase, ownerId)
     const { duplicates, remap } = reconcile(plan, existing)
+    const externalCpfConflicts = await findCpfConflictsOutsideClinic(supabase, ownerId, plan.patients)
+    for (const patient of plan.patients) {
+      const cpf = String(patient.data.cpf || "").replace(/\D/g, "")
+      if (cpf && externalCpfConflicts.has(cpf)) plan.errors.push(`Pacientes, linha ${patient.line}: este CPF já está associado a um cadastro fora desta clínica e não pode ser duplicado.`)
+    }
     const duplicateRecords = await existingIds(supabase, "medical_records", plan.records.map(item => item.id), ownerId)
     const duplicateExams = await existingIds(supabase, "documents", plan.exams.map(item => item.id), ownerId)
     const summary = {
       patients: plan.patients.length, newPatients: plan.patients.length - duplicates, duplicatePatients: duplicates,
       records: plan.records.length, newRecords: plan.records.length - duplicateRecords.size,
       exams: plan.exams.length, newExams: plan.exams.length - duplicateExams.size,
-      examsWithoutFiles: plan.exams.filter(exam => !exam.fileName).length,
+      examsWithoutFiles: plan.exams.filter(exam => !exam.fileName || !names.has(exam.fileName.toLowerCase())).length,
       samplePatients: plan.patients.slice(0, 5).map(patient => ({ name: String(patient.data.full_name), cpf: String(patient.data.cpf || ""), existing: remap.has(patient.id) })),
       sampleRecords: plan.records.slice(0, 5).map(record => String(record.data.title)),
-      sampleExams: plan.exams.slice(0, 5).map(exam => ({ title: String(exam.data.title), hasFile: Boolean(exam.fileName) })),
+      sampleExams: plan.exams.slice(0, 5).map(exam => ({ title: String(exam.data.title), hasFile: Boolean(exam.fileName && names.has(exam.fileName.toLowerCase())) })),
+      sampleExtras: sheets.flatMap(sheet => sheet.rows.flatMap(row => Object.entries(row.extras).map(([column, value]) => ({ kind: sheet.kind, column, value })))).slice(0, 5),
       unmapped: plan.unmapped, errors: plan.errors.slice(0, 100),
     }
     if (mode === "preview" || plan.errors.length) return NextResponse.json({ summary, canImport: plan.errors.length === 0 })
@@ -145,7 +181,12 @@ export async function POST(request: Request) {
     for (let i = 0; i < newPatients.length; i += 100) {
       const batch = newPatients.slice(i, i + 100)
       const { error } = await supabase.from("patients").insert(batch.map(patient => ({ id: patient.id, user_id: ownerId, ...patient.data })))
-      if (error) throw new Error(`Falha ao salvar pacientes a partir da linha ${batch[0].line}: ${error.message}`)
+      if (error) {
+        const conflict = error.code === "23505" && /cpf/i.test(error.message)
+        throw new Error(conflict
+          ? `Falha ao salvar pacientes a partir da linha ${batch[0].line}: um CPF já está cadastrado. Confira os CPFs da prévia e tente novamente.`
+          : `Falha ao salvar pacientes a partir da linha ${batch[0].line}: ${error.message}`)
+      }
       saved.patients += batch.length
     }
     const newRecords = plan.records.filter(record => !duplicateRecords.has(record.id))
@@ -155,7 +196,7 @@ export async function POST(request: Request) {
       if (error) throw new Error(`Falha ao salvar prontuários a partir da linha ${batch[0].line}: ${error.message}`)
       saved.records += batch.length
     }
-    const metadataExams = plan.exams.filter(exam => !duplicateExams.has(exam.id) && !exam.fileName)
+    const metadataExams = plan.exams.filter(exam => !duplicateExams.has(exam.id) && (!exam.fileName || !names.has(exam.fileName.toLowerCase())))
     for (let i = 0; i < metadataExams.length; i += 100) {
       const batch = metadataExams.slice(i, i + 100)
       const { error } = await supabase.from("documents").insert(batch.map(exam => ({ id: exam.id, user_id: ownerId, ...exam.data })))
@@ -163,7 +204,7 @@ export async function POST(request: Request) {
       saved.exams += batch.length
     }
     for (const exam of plan.exams) {
-      if (duplicateExams.has(exam.id) || !exam.fileName) continue
+      if (duplicateExams.has(exam.id) || !exam.fileName || !names.has(exam.fileName.toLowerCase())) continue
       let storagePath: string | null = null, fileType: string | null = null, fileSize: number | null = null
       if (exam.fileName) {
         const file = names.get(exam.fileName.toLowerCase())!

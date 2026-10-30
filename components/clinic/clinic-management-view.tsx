@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { useState, useEffect } from "react"
 import { useClinicSettings, saveClinicSettings } from "@/lib/hooks/use-data"
 import { Button } from "@/components/ui/button"
@@ -95,6 +96,7 @@ export function ClinicManagementView({ initialTab = "equipe" }: { initialTab?: C
 
   const { settings, isLoading: isLoadingSettings, mutate: mutateSettings } = useClinicSettings()
   const [isSavingSettings, setIsSavingSettings] = useState(false)
+  const [isSavingLogo, setIsSavingLogo] = useState(false)
 
   const DIAS_SEMANA = [
     { key: "monday", label: "Segunda-feira" },
@@ -154,6 +156,39 @@ export function ClinicManagementView({ initialTab = "equipe" }: { initialTab?: C
       toast.error(err instanceof Error ? err.message : "Erro ao salvar configurações")
     } finally {
       setIsSavingSettings(false)
+    }
+  }
+
+  const handleLogoUpload = async (file: File | undefined) => {
+    if (!file) return
+    setIsSavingLogo(true)
+    try {
+      const form = new FormData()
+      form.set("logo", file)
+      const response = await fetch("/api/clinic-settings/logo", { method: "POST", body: form })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "Não foi possível salvar a logo.")
+      await mutateSettings()
+      toast.success("Logo da clínica salva.")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível salvar a logo.")
+    } finally {
+      setIsSavingLogo(false)
+    }
+  }
+
+  const handleLogoRemoval = async () => {
+    setIsSavingLogo(true)
+    try {
+      const response = await fetch("/api/clinic-settings/logo", { method: "DELETE" })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "Não foi possível remover a logo.")
+      await mutateSettings()
+      toast.success("Logo removida.")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível remover a logo.")
+    } finally {
+      setIsSavingLogo(false)
     }
   }
 
@@ -573,8 +608,17 @@ export function ClinicManagementView({ initialTab = "equipe" }: { initialTab?: C
           ) : (
             <>
               <Card className="p-6">
-                <h3 className="font-semibold text-foreground mb-4">Informações Básicas</h3>
+                <h3 className="font-semibold text-foreground mb-4">Perfil da clínica</h3>
                 <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-4 rounded-lg border p-4">
+                    {settings?.logo_url ? <Image unoptimized width={128} height={80} src={`/api/clinic-settings/logo?v=${encodeURIComponent(settings.logo_url)}`} alt="Logo da clínica" className="h-20 w-32 object-contain" /> : <div className="flex h-20 w-32 items-center justify-center rounded bg-muted text-xs text-muted-foreground">Sem logo</div>}
+                    <div className="space-y-2">
+                      <Label htmlFor="clinic-logo">Logo da clínica</Label>
+                      <Input id="clinic-logo" type="file" accept="image/png,image/jpeg" disabled={isSavingLogo} onChange={event => { void handleLogoUpload(event.target.files?.[0]); event.target.value = "" }} />
+                      <p className="text-xs text-muted-foreground">PNG ou JPEG de até 2 MB. Aparece nos orçamentos.</p>
+                      {settings?.logo_url && <Button type="button" size="sm" variant="outline" disabled={isSavingLogo} onClick={() => void handleLogoRemoval()}>Remover logo</Button>}
+                    </div>
+                  </div>
                   {[
                     { label: "Nome da Clínica *", key: "clinic_name", placeholder: "SyncOdonto Clínica" },
                     { label: "CNPJ", key: "cnpj", placeholder: "00.000.000/0001-00" },

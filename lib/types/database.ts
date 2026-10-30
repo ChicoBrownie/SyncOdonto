@@ -154,6 +154,7 @@ export type ClinicSettings = {
   address: string | null
   phone: string | null
   email: string | null
+  logo_url: string | null
   working_hours: {
     start: string
     end: string

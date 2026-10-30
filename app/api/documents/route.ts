@@ -5,6 +5,8 @@ import { documentInputSchema, parseInput } from "@/lib/validation/api-schemas"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { recordAuditEvent } from "@/lib/security/audit"
 import { budgetItems, budgetPlainText, budgetTotal } from "@/lib/documents/budget-document"
+import { createBudgetPdf } from "@/lib/documents/budget-pdf"
+import { downloadClinicLogo } from "@/lib/documents/clinic-logo"
 
 const STORAGE_BUCKET = "documentos-clinica"
 
@@ -56,6 +58,9 @@ export async function POST(request: Request) {
   let documentContent = body.content || ""
   let verifiedItems = body.items
   let verifiedTotal = body.total_amount ?? null
+  let budgetDocument: Parameters<typeof createBudgetPdf>[0] | null = null
+  let budgetClinic: Parameters<typeof createBudgetPdf>[1] | null = null
+  let budgetLogo: Buffer | undefined
   if (body.document_type === "budget") {
     const items = budgetItems(body.items)
     if (!Array.isArray(body.items) || !items.length || items.length !== body.items.length) {
@@ -64,13 +69,16 @@ export async function POST(request: Request) {
     if (budgetTotal(items) > 100_000_000) return NextResponse.json({ error: "O total do orçamento excede o limite permitido." }, { status: 400 })
     verifiedItems = items
     verifiedTotal = budgetTotal(items)
-    const { data: clinic, error: clinicError } = await supabase.from("clinic_settings").select("clinic_name,address,phone,email").eq("user_id", ownerId).maybeSingle()
+    const { data: clinic, error: clinicError } = await supabase.from("clinic_settings").select("clinic_name,address,phone,email,logo_url").eq("user_id", ownerId).maybeSingle()
     if (clinicError) return NextResponse.json({ error: clinicError.message }, { status: 500 })
     const { data: patient, error: patientError } = body.patient_id
       ? await supabase.from("patients").select("full_name,email").eq("id", body.patient_id).eq("user_id", ownerId).maybeSingle()
       : { data: null, error: null }
     if (patientError) return NextResponse.json({ error: patientError.message }, { status: 500 })
-    documentContent = budgetPlainText({ created_at: new Date().toISOString(), lead_name: body.lead_name, description: body.description, payment_method: body.payment_method, items, patient }, clinic || {})
+    budgetDocument = { created_at: new Date().toISOString(), lead_name: body.lead_name, description: body.description, payment_method: body.payment_method, items, patient }
+    budgetClinic = clinic || {}
+    budgetLogo = await downloadClinicLogo(supabase, ownerId, clinic?.logo_url)
+    documentContent = budgetPlainText(budgetDocument, clinic || {})
   }
 
   let storagePath = body.storage_path || null
@@ -80,7 +88,9 @@ export async function POST(request: Request) {
   if (body.generate_pdf) {
     const documentId = crypto.randomUUID()
     storagePath = `${ownerId}/generated/${documentId}.pdf`
-    const pdf = createSimplePdf(body.title, documentContent || body.description || "")
+    const pdf = budgetDocument && budgetClinic
+      ? await createBudgetPdf(budgetDocument, budgetClinic, budgetLogo)
+      : createSimplePdf(body.title, documentContent || body.description || "")
     const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, pdf, { contentType: "application/pdf", upsert: false })
     if (uploadError) return NextResponse.json({ error: `Erro ao gerar PDF: ${uploadError.message}` }, { status: 500 })
   }

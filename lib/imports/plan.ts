@@ -35,9 +35,12 @@ function validated<T>(schema: { safeParse: (value: unknown) => { success: boolea
 export function buildImportPlan(sheets: ImportSheet[], clinicId: string, sourceName: string): ImportPlan {
   const plan: ImportPlan = { patients: [], records: [], exams: [], unmapped: {}, errors: [] }
   const refs = new Map<string, string>()
+  const patientNames = new Map<string, string | null>()
   const seen = new Set<string>()
   const seenCpf = new Set<string>()
   const source = normalized(sourceName)
+  const hasRecordSheet = sheets.some(sheet => sheet.kind === "records")
+  const hasExamSheet = sheets.some(sheet => sheet.kind === "exams")
   for (const sheet of sheets) plan.unmapped[sheet.kind] = sheet.unmapped
 
   for (const sheet of sheets.filter(sheet => sheet.kind === "patients")) {
@@ -52,7 +55,27 @@ export function buildImportPlan(sheets: ImportSheet[], clinicId: string, sourceN
         if (cpf) seenCpf.add(cpf)
         const id = stableId(clinicId, source, "patient", key)
         const extra = extrasText(row.extras)
-        const notes = [v.notes, v.source_id && `ID no sistema de origem: ${v.source_id}`, extra && `Dados adicionais da origem:\n${extra}`].filter(Boolean).join("\n\n") || null
+        const embeddedRecord = [
+          v.inline_record_id && `ID do prontuário na origem: ${v.inline_record_id}`,
+          v.inline_record_date && `Data do atendimento: ${date(v.inline_record_date)}`,
+          v.inline_record_doctor && `Profissional: ${v.inline_record_doctor}`,
+          v.inline_record_procedure && `Procedimento: ${v.inline_record_procedure}`,
+          v.clinical_notes,
+        ].filter(Boolean).join("\n")
+        const embeddedExam = [
+          v.inline_exam_id && `ID do exame na origem: ${v.inline_exam_id}`,
+          v.inline_exam_date && `Data do exame: ${date(v.inline_exam_date)}`,
+          v.inline_exam_type && `Tipo: ${v.inline_exam_type}`,
+          v.inline_exam_description,
+          v.inline_exam_result && `Resultado: ${v.inline_exam_result}`,
+        ].filter(Boolean).join("\n")
+        const notes = [
+          v.notes,
+          v.source_id && `ID no sistema de origem: ${v.source_id}`,
+          hasRecordSheet && embeddedRecord && `Atendimento na origem:\n${embeddedRecord}`,
+          hasExamSheet && embeddedExam && `Exame na origem:\n${embeddedExam}`,
+          extra && `Dados adicionais da origem:\n${extra}`,
+        ].filter(Boolean).join("\n\n") || null
         const data = validated(patientInputSchema, {
           full_name: v.full_name,
           email: v.email || null,
@@ -69,14 +92,18 @@ export function buildImportPlan(sheets: ImportSheet[], clinicId: string, sourceN
         plan.patients.push({ id, key, sourceId: v.source_id || null, data, line: row.line })
         if (v.source_id) refs.set(v.source_id, id)
         if (cpf) refs.set(cpf, id)
-        if (v.clinical_notes) {
-          const recordData = validated(medicalRecordInputSchema, { patient_id: id, record_type: "other", title: "Histórico clínico importado", content: v.clinical_notes }) as Record<string, unknown>
-          plan.records.push({ id: stableId(clinicId, source, "inline-record", key, v.clinical_notes), patientId: id, data: recordData, line: row.line })
+        const nameKey = normalized(v.full_name || "")
+        if (nameKey) patientNames.set(nameKey, patientNames.has(nameKey) ? null : id)
+        if (embeddedRecord && !hasRecordSheet) {
+          const title = v.inline_record_procedure || "Histórico clínico importado"
+          const recordData = validated(medicalRecordInputSchema, { patient_id: id, record_type: "other", title, content: embeddedRecord }) as Record<string, unknown>
+          plan.records.push({ id: stableId(clinicId, source, "inline-record", key, embeddedRecord), patientId: id, data: recordData, line: row.line })
         }
-        if (v.exam_title || v.exam_file) {
-          const title = v.exam_title || v.exam_file
-          const examData = validated(documentInputSchema, { patient_id: id, title, document_type: "exam", description: "Exame importado", status: "archived" }) as Record<string, unknown>
-          plan.exams.push({ id: stableId(clinicId, source, "inline-exam", key, title, v.exam_file || ""), patientId: id, data: examData, fileName: v.exam_file || null, line: row.line })
+        if ((embeddedExam || v.exam_title || v.exam_file) && !hasExamSheet) {
+          const title = v.exam_title || v.inline_exam_type || v.exam_file || "Exame importado"
+          const examContent = [embeddedExam, v.exam_file && `Arquivo na origem: ${v.exam_file}`].filter(Boolean).join("\n\n")
+          const examData = validated(documentInputSchema, { patient_id: id, title, document_type: "exam", description: examContent || "Exame importado", status: "archived" }) as Record<string, unknown>
+          plan.exams.push({ id: stableId(clinicId, source, "inline-exam", key, title, examContent), patientId: id, data: examData, fileName: v.exam_file || null, line: row.line })
         }
       } catch (error) { plan.errors.push(`Pacientes, linha ${row.line}: ${error instanceof Error ? error.message : "dados inválidos"}`) }
     }
@@ -86,8 +113,10 @@ export function buildImportPlan(sheets: ImportSheet[], clinicId: string, sourceN
     for (const row of sheet.rows) {
       try {
         const v = row.values
-        const patientId = refs.get(v.patient_ref) || refs.get(digits(v.patient_ref || ""))
-        if (!patientId) throw new Error("ID/CPF do paciente não encontrado na planilha de pacientes")
+        const matches = new Set((row.references?.length ? row.references : [v.patient_ref]).filter(Boolean).map(ref => refs.get(ref) || refs.get(digits(ref)) || patientNames.get(normalized(ref))).filter((id): id is string => Boolean(id)))
+        if (matches.size > 1) throw new Error("ID e CPF indicam pacientes diferentes na planilha")
+        const patientId = matches.values().next().value
+        if (!patientId) throw new Error("ID, CPF ou nome do paciente não encontrado de forma única na planilha de pacientes")
         const extra = extrasText(row.extras)
         if (sheet.kind === "records") {
           const content = [v.source_id && `ID no sistema de origem: ${v.source_id}`, v.record_type && `Tipo na origem: ${v.record_type}`, v.record_date && `Data na origem: ${date(v.record_date)}`, v.doctor_name && `Profissional na origem: ${v.doctor_name}`, v.content, extra && `Dados adicionais da origem:\n${extra}`].filter(Boolean).join("\n\n")
@@ -97,8 +126,8 @@ export function buildImportPlan(sheets: ImportSheet[], clinicId: string, sourceN
           const data = validated(medicalRecordInputSchema, { patient_id: patientId, record_type: recordType, title: v.title || "Prontuário importado", content }) as Record<string, unknown>
           plan.records.push({ id: stableId(clinicId, source, "record", patientId, v.source_id || JSON.stringify(data)), patientId, data, line: row.line })
         } else {
-          const title = v.title || v.file_name
-          const description = [v.source_id && `ID no sistema de origem: ${v.source_id}`, v.exam_type, v.description, v.file_name && `Arquivo na origem: ${v.file_name}`, extra && `Dados adicionais da origem:\n${extra}`].filter(Boolean).join("\n\n") || null
+          const title = v.title || v.exam_type || v.file_name
+          const description = [v.source_id && `ID no sistema de origem: ${v.source_id}`, v.exam_date && `Data do exame: ${date(v.exam_date)}`, v.exam_type && `Tipo: ${v.exam_type}`, v.description, v.file_name && `Arquivo na origem: ${v.file_name}`, extra && `Dados adicionais da origem:\n${extra}`].filter(Boolean).join("\n\n") || null
           const data = validated(documentInputSchema, { patient_id: patientId, title, document_type: "exam", description, status: "archived" }) as Record<string, unknown>
           plan.exams.push({ id: stableId(clinicId, source, "exam", patientId, v.source_id || JSON.stringify(data) + (v.file_name || "")), patientId, data, fileName: v.file_name || null, line: row.line })
         }

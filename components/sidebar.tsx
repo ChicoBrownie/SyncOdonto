@@ -20,7 +20,19 @@ import {
   X,
 } from "lucide-react"
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+const fetcher = async (url: string) => {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error("Não foi possível atualizar o menu.")
+  return response.json()
+}
+
+const accessFetcher = async (url: string) => {
+  const data = await fetcher(url)
+  if (!["gestor", "dentista", "recepcionista"].includes(data?.access_role)) {
+    throw new Error("Permissões indisponíveis.")
+  }
+  return data
+}
 
 interface SidebarProps {
   isOpen?: boolean
@@ -67,16 +79,16 @@ function SidebarContent({
   onClose: () => void
   showClose: boolean
 }) {
-  const { data: accessRes } = useSWR("/api/auth/check-access", fetcher)
+  const { data: accessRes } = useSWR("/api/auth/check-access", accessFetcher)
   const { data: sustainabilityRes } = useSWR("/api/sustainability-metrics", fetcher)
-  const isGestor = (accessRes?.access_role || "gestor") === "gestor"
+  const isGestor = accessRes?.access_role === "gestor"
   const permissions = accessRes?.permissions
   const savedSheets = Number(sustainabilityRes?.data?.allTime?.sheets || 0)
   const menuItems = [
     { icon: Calendar, label: "Agendamento", href: "/agenda" },
     { icon: Play, label: "Atendimento", href: "/atendimento" },
     { icon: Users, label: "Lista de Pacientes", href: "/pacientes" },
-    ...(accessRes?.access_role === "gestor" ? [{ icon: FileSpreadsheet, label: "Importar dados", href: "/importacao" }] : []),
+    ...(isGestor ? [{ icon: FileSpreadsheet, label: "Importar dados", href: "/importacao" }] : []),
     { icon: Building2, label: "Equipe", href: "/gestao-clinica" },
     { icon: Package, label: "Insumos", href: "/insumos" },
     { icon: ClipboardList, label: "Orçamentos", href: "/orcamentos" },

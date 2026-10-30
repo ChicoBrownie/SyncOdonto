@@ -87,6 +87,7 @@ export function PrintableRecord({ patient, age, anamneses, clinicalRecords, exam
           <p><strong>Alergias:</strong> {patient.allergies || "Nenhuma registrada"}</p>
           <p><strong>Condições pré-existentes:</strong> {patient.pre_existing_conditions || "Nenhuma registrada"}</p>
           <p className="col-span-2"><strong>Medicamentos em uso:</strong> {patient.medications || "Nenhum registrado"}</p>
+          {patient.notes && <p className="col-span-2 whitespace-pre-wrap"><strong>Observações e dados importados:</strong> {patient.notes}</p>}
         </div>
       </section>
 

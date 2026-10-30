@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { AlertTriangle, Pill, HeartPulse } from "lucide-react"
 import { usePatient } from "@/lib/hooks/use-data"
 import { Loader2, Pencil, Plus } from "lucide-react"
@@ -22,6 +23,7 @@ export function MedicalInformation({ patientId }: MedicalInformationProps) {
   const [allergiesInput, setAllergiesInput] = useState("")
   const [conditionsInput, setConditionsInput] = useState("")
   const [medicationsInput, setMedicationsInput] = useState("")
+  const [notesInput, setNotesInput] = useState("")
   const [saving, setSaving] = useState(false)
 
   if (isLoading) {
@@ -38,12 +40,13 @@ export function MedicalInformation({ patientId }: MedicalInformationProps) {
   const conditions = patient?.pre_existing_conditions?.split(",").map((c: string) => c.trim()).filter(Boolean) || []
   const medications = patient?.medications?.split(",").map((m: string) => m.trim()).filter(Boolean) || []
 
-  const hasAnyInfo = allergies.length > 0 || conditions.length > 0 || medications.length > 0
+  const hasAnyInfo = allergies.length > 0 || conditions.length > 0 || medications.length > 0 || Boolean(patient?.notes)
 
   const openEditor = () => {
     setAllergiesInput(patient?.allergies || "")
     setConditionsInput(patient?.pre_existing_conditions || "")
     setMedicationsInput(patient?.medications || "")
+    setNotesInput(patient?.notes || "")
     setDialogOpen(true)
   }
 
@@ -57,6 +60,7 @@ export function MedicalInformation({ patientId }: MedicalInformationProps) {
           allergies: allergiesInput.trim() || null,
           pre_existing_conditions: conditionsInput.trim() || null,
           medications: medicationsInput.trim() || null,
+          notes: notesInput.trim() || null,
         }),
       })
       const body = await response.json()
@@ -126,6 +130,10 @@ export function MedicalInformation({ patientId }: MedicalInformationProps) {
             </div>
           </div>
         )}
+        {patient?.notes && <div>
+          <p className="mb-2 text-sm font-medium text-foreground">Observações e dados importados</p>
+          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{patient.notes}</p>
+        </div>}
       </CardContent>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -135,6 +143,7 @@ export function MedicalInformation({ patientId }: MedicalInformationProps) {
             <div className="space-y-2"><Label htmlFor="medical-allergies">Alergias</Label><Input id="medical-allergies" value={allergiesInput} onChange={(event) => setAllergiesInput(event.target.value)} placeholder="Ex.: penicilina, látex" /></div>
             <div className="space-y-2"><Label htmlFor="medical-conditions">Condições preexistentes</Label><Input id="medical-conditions" value={conditionsInput} onChange={(event) => setConditionsInput(event.target.value)} placeholder="Ex.: diabetes, hipertensão" /></div>
             <div className="space-y-2"><Label htmlFor="medical-medications">Medicamentos em uso</Label><Input id="medical-medications" value={medicationsInput} onChange={(event) => setMedicationsInput(event.target.value)} placeholder="Ex.: metformina" /></div>
+            <div className="space-y-2"><Label htmlFor="medical-notes">Observações e dados importados</Label><Textarea id="medical-notes" value={notesInput} onChange={event => setNotesInput(event.target.value)} rows={4} maxLength={5000} /></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button><Button onClick={saveMedicalInformation} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}</Button></DialogFooter>
         </DialogContent>

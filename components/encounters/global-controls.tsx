@@ -16,8 +16,8 @@ export function EncounterGlobalControls() {
   const pathname = usePathname()
   const inEditor = /^\/atendimento\/[^/]+/.test(pathname)
   const [offset, setOffset] = useState(0)
-  const { data, error, isLoading, mutate } = useSWR(inEditor ? null : offset ? `${resumeKey}?offset=${offset}` : resumeKey, encounterRequest, { refreshInterval: 15_000, revalidateOnFocus: true })
   const [open, setOpen] = useState(false)
+  const { data, error, isLoading, mutate } = useSWR(inEditor ? null : offset ? `${resumeKey}?offset=${offset}` : resumeKey, encounterRequest, { refreshInterval: open ? 15_000 : 60_000, revalidateOnFocus: true })
   const [dismissedCount, setDismissedCount] = useState<number | null>(null)
   const drafts: Summary[] = data?.data || []
   const count = data?.count ?? drafts.length

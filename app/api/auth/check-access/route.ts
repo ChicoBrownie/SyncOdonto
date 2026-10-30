@@ -17,11 +17,16 @@ export async function GET() {
 
   const adminClient = getServiceClient()
 
-  const { data: staffRecord } = await adminClient
+  const { data: staffRecord, error: staffError } = await adminClient
     .from("clinic_staff")
     .select("access_role, permissions, is_active")
     .eq("auth_user_id", user.id)
     .maybeSingle()
+
+  if (staffError) {
+    console.error("[check-access] Não foi possível consultar a equipe:", staffError)
+    return NextResponse.json({ error: "Não foi possível verificar as permissões." }, { status: 503 })
+  }
 
   if (staffRecord?.is_active === false) {
     return NextResponse.json({ error: "Acesso desativado pelo gestor da clínica." }, { status: 403 })
