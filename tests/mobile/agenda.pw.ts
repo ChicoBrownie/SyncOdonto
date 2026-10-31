@@ -14,6 +14,8 @@ test("agenda semanal permite tocar na consulta e escolher outro horário", async
   const appointment = { id: "66666666-6666-4666-8666-666666666666", patient_id: "44444444-4444-4444-8444-444444444444", date: mondayISO, time: "09:00:00", duration_minutes: 60, procedure_type: "Consulta", doctor_name: "Bruno", status: "Pendente", patient: { full_name: "Gilson" } }
   const patches: Partial<Pick<typeof appointment, "date" | "time" | "procedure_type" | "doctor_name">>[] = []
   const created: { date: string; time: string; patient_id: string }[] = []
+  let releaseMove: (() => void) | undefined
+  let rejectNextMove = false
   await page.route("**/api/**", async route => {
     const url = new URL(route.request().url())
     const send = (data: unknown) => route.fulfill({ contentType: "application/json", body: JSON.stringify(data) })
@@ -22,7 +24,13 @@ test("agenda semanal permite tocar na consulta e escolher outro horário", async
     }
     if (url.pathname === `/api/appointments/${appointment.id}` && route.request().method() === "PATCH") {
       const change = route.request().postDataJSON() as typeof patches[number]
-      patches.push(change); Object.assign(appointment, change)
+      patches.push(change)
+      if (change.date === wednesdayISO && change.time === "13:00") await new Promise<void>(resolve => { releaseMove = resolve })
+      if (rejectNextMove) {
+        rejectNextMove = false
+        return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "Conflito de horário para este profissional." }) })
+      }
+      Object.assign(appointment, change)
       return send({ data: appointment })
     }
     if (url.pathname === "/api/appointments" && route.request().method() === "POST") {
@@ -33,7 +41,15 @@ test("agenda semanal permite tocar na consulta e escolher outro horário", async
     if (url.pathname === "/api/patients") return send({ data: [{ id: appointment.patient_id, full_name: "Gilson" }] })
     if (url.pathname === "/api/encounters") return send({ data: [], count: 0 })
     if (url.pathname === "/api/encounter-guides") return send({ data: [{ area: "agenda" }] })
-    if (url.pathname === "/api/clinic-settings") return send({ data: { working_hours: { start: "08:00", end: "18:00" } } })
+    if (url.pathname === "/api/clinic-settings/working-hours") return send({ data: { start: "08:00", end: "18:00", days: {
+      monday: { start: "08:00", end: "23:00", closed: false },
+      tuesday: { start: "08:00", end: "23:00", closed: false },
+      wednesday: { start: "08:00", end: "23:00", closed: false },
+      thursday: { start: "08:00", end: "23:00", closed: false },
+      friday: { start: "08:00", end: "23:00", closed: false },
+      saturday: { start: "08:00", end: "12:00", closed: false },
+      sunday: { start: "08:00", end: "18:00", closed: true },
+    } } })
     return send({ data: [] })
   })
   await page.goto("/agenda")
@@ -41,6 +57,18 @@ test("agenda semanal permite tocar na consulta e escolher outro horário", async
   await expect(page.getByRole("button", { name: "Semana" })).toHaveAttribute("aria-pressed", "true")
   await expect(page.getByText("Visão Semanal")).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Período" })).toHaveCount(0)
+  await expect(page.getByLabel("Agenda semanal")).toContainText("23:00")
+  const grid = page.getByLabel("Agenda semanal")
+  const mondaySlot = page.getByRole("button", { name: `${monday.toLocaleDateString("pt-BR")} às 10:00` })
+  await mondaySlot.scrollIntoViewIfNeeded()
+  await grid.evaluate(element => { element.scrollLeft = 0 })
+  const slotBox = await mondaySlot.boundingBox()
+  expect(slotBox).not.toBeNull()
+  await page.mouse.move(slotBox!.x + 120, slotBox!.y + 35)
+  await page.mouse.down()
+  await page.mouse.move(slotBox!.x + 20, slotBox!.y + 35, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(() => grid.evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
   const importLink = page.locator("aside").last().getByRole("link", { name: "Importar dados" })
   await expect(importLink).toHaveCount(1)
   const dayHeader = page.getByRole("button", { name: new RegExp(wednesday.toLocaleDateString("pt-BR", { weekday: "long" }), "i") })
@@ -57,9 +85,20 @@ test("agenda semanal permite tocar na consulta e escolher outro horário", async
   await expect.poll(() => patches).toEqual([{ procedure_type: "Limpeza", doctor_name: "Bruno Silva" }])
   await page.getByRole("button", { name: /Gilson, 09:00.*Bruno Silva/ }).click()
   await page.getByRole("button", { name: "Escolher na grade" }).click()
+  const saturday = new Date(monday); saturday.setDate(monday.getDate() + 5)
+  await expect(page.getByRole("button", { name: `${saturday.toLocaleDateString("pt-BR")} às 13:00` })).toBeDisabled()
   await page.getByRole("button", { name: `${wednesday.toLocaleDateString("pt-BR")} às 13:00` }).click()
+  await expect(page.getByRole("button", { name: /Gilson, 13:00.*Bruno Silva/ })).toBeVisible()
+  releaseMove?.()
   await expect.poll(() => patches).toEqual([{ procedure_type: "Limpeza", doctor_name: "Bruno Silva" }, { date: wednesdayISO, time: "13:00" }])
-  await expect(page.getByText(/Consulta remarcada/)).toBeVisible()
+  await expect(page.getByRole("button", { name: /Gilson, 13:00.*Bruno Silva/ })).toBeVisible()
+  await expect(page.getByText(/Consulta remarcada/)).toHaveCount(0)
+  rejectNextMove = true
+  await page.getByRole("button", { name: /Gilson, 13:00.*Bruno Silva/ }).click()
+  await page.getByRole("button", { name: "Escolher na grade" }).click()
+  await page.getByRole("button", { name: `${wednesday.toLocaleDateString("pt-BR")} às 14:00` }).click()
+  await expect(page.getByText("Conflito de horário para este profissional.")).toBeVisible()
+  await expect(page.getByRole("button", { name: /Gilson, 13:00.*Bruno Silva/ })).toBeVisible()
 
   await page.getByRole("button", { name: "Escolher data ou intervalo" }).click()
   await page.getByLabel("Data", { exact: true }).fill(wednesdayISO)

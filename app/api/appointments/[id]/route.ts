@@ -6,6 +6,7 @@ import { patientBelongsToClinic } from "@/lib/security/clinic-data"
 import { appointmentInputSchema, parseInput } from "@/lib/validation/api-schemas"
 import { validateAppointmentTransition } from "@/lib/appointments/lifecycle"
 import { hasTimeConflict } from "@/lib/appointments/scheduling"
+import { checkAgendaBlockConflict } from "@/lib/appointments/blocks"
 
 export async function GET(
   request: Request,
@@ -67,6 +68,9 @@ export async function PATCH(
     const duration = body.duration_minutes ?? anterior.duration_minutes ?? 60
     const doctor = body.doctor_name ?? anterior.doctor_name
     const patient = body.patient_id ?? anterior.patient_id
+    const hasBlockConflict = await checkAgendaBlockConflict(supabase, ownerId, date, time, duration, doctor || "")
+    if (hasBlockConflict === null) return NextResponse.json({ error: "Não foi possível conferir os bloqueios da agenda." }, { status: 503 })
+    if (hasBlockConflict) return NextResponse.json({ error: "Este horário está bloqueado por um compromisso da clínica ou do dentista." }, { status: 409 })
     const { data: occupied, error: slotError } = await supabase.from("appointments").select("id,time,duration_minutes,doctor_name,patient_id,status").eq("user_id", ownerId).eq("date", date).neq("id", id).not("status", "in", '("Cancelada","Concluída","Falta")')
     if (slotError) return NextResponse.json({ error: slotError.message }, { status: 500 })
     const conflict = (occupied || []).find((item: any) => hasTimeConflict(time, duration, item.time, item.duration_minutes ?? 60) && (item.patient_id === patient || item.doctor_name?.trim().toLocaleLowerCase("pt-BR") === doctor?.trim().toLocaleLowerCase("pt-BR")))

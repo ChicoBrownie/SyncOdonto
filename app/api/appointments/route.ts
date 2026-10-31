@@ -4,6 +4,7 @@ import { stripImmutableTenantFields } from "@/lib/security/request-data"
 import { hasTimeConflict } from "@/lib/appointments/scheduling"
 import { patientBelongsToClinic } from "@/lib/security/clinic-data"
 import { appointmentInputSchema, parseInput } from "@/lib/validation/api-schemas"
+import { checkAgendaBlockConflict } from "@/lib/appointments/blocks"
 
 export async function GET(request: Request) {
   const result = await getClinicScopedClient()
@@ -61,6 +62,10 @@ export async function POST(request: Request) {
   }
 
   const duration = body.duration_minutes ?? 60
+
+  const hasBlockConflict = await checkAgendaBlockConflict(supabase, ownerId, body.date, body.time, duration, body.doctor_name)
+  if (hasBlockConflict === null) return NextResponse.json({ error: "Não foi possível conferir os bloqueios da agenda." }, { status: 503 })
+  if (hasBlockConflict) return NextResponse.json({ error: "Este horário está bloqueado por um compromisso da clínica ou do dentista." }, { status: 409 })
 
   // Busca agendamentos existentes na mesma data
   const { data: existingAppointments, error: fetchError } = await supabase

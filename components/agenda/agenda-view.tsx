@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, ChevronLeft, ChevronRight, Plus, Loader2, AlertCircle, AlertTriangle } from "lucide-react"
+import { Calendar, ChevronLeft, ChevronRight, Plus, Loader2, AlertCircle, AlertTriangle, CalendarClock, Trash2 } from "lucide-react"
 import { useAppointments, usePatients, createAppointment, updateAppointment } from "@/lib/hooks/use-data"
 import {
   Dialog,
@@ -29,9 +29,12 @@ import { toast } from "sonner"
 import useSWR from "swr"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
+import { getDailyWorkingHours, getWeekGridHours, isWithinWorkingHours, type WorkingHours } from "@/lib/appointments/working-hours"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Checkbox } from "@/components/ui/checkbox"
 
-const DEFAULT_CLOSING_HOUR = 18
 const NON_RESCHEDULABLE_STATUSES = ["Em Andamento", "Concluída", "Cancelada", "Falta"]
+type AgendaBlock = { id: string; title: string; scope: "dentist" | "clinic"; doctor_name: string | null; resource_name: string | null; notes: string | null; date: string; start_time: string | null; end_time: string | null; all_day: boolean }
 
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number)
@@ -160,6 +163,9 @@ export function AgendaView() {
   const [rangeEnd, setRangeEnd] = useState(toLocalDateString(new Date()))
   const [movingId, setMovingId] = useState<string | null>(null)
   const [movingBusy, setMovingBusy] = useState(false)
+  const [optimisticMoves, setOptimisticMoves] = useState<Record<string, { date: string; time: string }>>({})
+  const weekPanRef = useRef<{ pointerId: number; startX: number; startScrollLeft: number; moved: boolean } | null>(null)
+  const suppressWeekClickRef = useRef(false)
   const [detailsId, setDetailsId] = useState<string | null>(null)
   const [detailDate, setDetailDate] = useState("")
   const [detailTime, setDetailTime] = useState("")
@@ -167,6 +173,10 @@ export function AgendaView() {
   const [detailDoctor, setDetailDoctor] = useState("")
   const [detailError, setDetailError] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isBlockDialogOpen, setIsBlockDialogOpen] = useState(false)
+  const [editingBlockId, setEditingBlockId] = useState<string | null>(null)
+  const [isSavingBlock, setIsSavingBlock] = useState(false)
+  const [blockError, setBlockError] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [, setTick] = useState(0)
@@ -203,24 +213,80 @@ export function AgendaView() {
     viewMode === "week" ? `/api/appointments?startDate=${weekStart}&endDate=${weekEnd}` : null,
     (url: string) => fetch(url).then(r => r.json())
   )
-  const weekAppointments: any[] = weekData?.data || []
+  const { data: blocksRes, mutate: mutateBlocks } = useSWR(`/api/agenda-blocks?startDate=${weekStart}&endDate=${weekEnd}`, (url: string) => fetch(url).then(r => r.json()))
+  const agendaBlocks: AgendaBlock[] = blocksRes?.data || []
+  const weekAppointments: any[] = (weekData?.data || []).map((item: any) => optimisticMoves[item.id] ? { ...item, ...optimisticMoves[item.id] } : item)
   const detailAppointment = weekAppointments.find(a => a.id === detailsId)
 
   const { data: customData } = useSWR(viewMode === "custom" && customStart <= customEnd ? `/api/appointments?startDate=${customStart}&endDate=${customEnd}` : null, (url: string) => fetch(url).then(r => r.json()))
   const customAppointments: any[] = customData?.data || []
 
   const { patients } = usePatients(undefined, undefined, undefined, isDialogOpen)
-  const { data: staffRes } = useSWR(isDialogOpen ? "/api/clinic-staff" : null, (url: string) => fetch(url).then(r => r.json()))
+  const { data: staffRes } = useSWR(isDialogOpen || isBlockDialogOpen ? "/api/clinic-staff" : null, (url: string) => fetch(url).then(r => r.json()))
   const staff = staffRes?.data || []
-  const { data: settingsRes } = useSWR(viewMode === "week" ? "/api/clinic-settings" : null, (url: string) => fetch(url).then(r => r.json()))
-  const closingHour: number = settingsRes?.data?.working_hours?.end
-    ? parseInt(settingsRes.data.working_hours.end.split(":")[0])
-    : DEFAULT_CLOSING_HOUR
+  const { data: settingsRes } = useSWR(viewMode === "week" ? "/api/clinic-settings/working-hours" : null, (url: string) => fetch(url).then(r => r.json()))
+  const workingHours: WorkingHours | null = settingsRes?.data ?? null
 
   const [newAppointment, setNewAppointment] = useState({
     patient_id: "", procedure_type: "Consulta", date: toLocalDateString(new Date()), time: "",
     duration_minutes: 60, notes: "", doctor_name: "",
   })
+  const [blockForm, setBlockForm] = useState({ title: "", scope: "dentist" as "dentist" | "clinic", doctor_name: "", resource_name: "", notes: "", date: dateString, start_time: "08:00", end_time: "09:00", all_day: false })
+
+  const startNewBlock = () => {
+    setEditingBlockId(null)
+    setBlockError(null)
+    setBlockForm({ title: "", scope: "dentist", doctor_name: "", resource_name: "", notes: "", date: dateString, start_time: "08:00", end_time: "09:00", all_day: false })
+    setIsBlockDialogOpen(true)
+  }
+
+  const editBlock = (block: AgendaBlock) => {
+    setEditingBlockId(block.id)
+    setBlockError(null)
+    setBlockForm({ title: block.title, scope: block.scope, doctor_name: block.doctor_name || "", resource_name: block.resource_name || "", notes: block.notes || "", date: block.date, start_time: block.start_time?.slice(0, 5) || "08:00", end_time: block.end_time?.slice(0, 5) || "09:00", all_day: block.all_day })
+    setIsBlockDialogOpen(true)
+  }
+
+  const saveBlock = async () => {
+    setBlockError(null)
+    if (blockForm.title.trim().length < 2) { setBlockError("Informe o nome do compromisso."); return }
+    if (blockForm.scope === "dentist" && !blockForm.doctor_name) { setBlockError("Selecione o dentista."); return }
+    if (!blockForm.all_day && blockForm.end_time <= blockForm.start_time) { setBlockError("O horário final precisa ser posterior ao inicial."); return }
+    setIsSavingBlock(true)
+    try {
+      const response = await fetch(editingBlockId ? `/api/agenda-blocks/${editingBlockId}` : "/api/agenda-blocks", {
+        method: editingBlockId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...blockForm, start_time: blockForm.all_day ? null : blockForm.start_time, end_time: blockForm.all_day ? null : blockForm.end_time }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "Não foi possível salvar o compromisso.")
+      await mutateBlocks()
+      setIsBlockDialogOpen(false)
+      toast.success(editingBlockId ? "Compromisso atualizado." : "Compromisso reservado na agenda.")
+    } catch (error) {
+      setBlockError(error instanceof Error ? error.message : "Não foi possível salvar o compromisso.")
+    } finally {
+      setIsSavingBlock(false)
+    }
+  }
+
+  const deleteBlock = async () => {
+    if (!editingBlockId || !window.confirm("Excluir este compromisso da agenda?")) return
+    setIsSavingBlock(true)
+    try {
+      const response = await fetch(`/api/agenda-blocks/${editingBlockId}`, { method: "DELETE" })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "Não foi possível excluir o compromisso.")
+      await mutateBlocks()
+      setIsBlockDialogOpen(false)
+      toast.success("Compromisso removido da agenda.")
+    } catch (error) {
+      setBlockError(error instanceof Error ? error.message : "Não foi possível excluir o compromisso.")
+    } finally {
+      setIsSavingBlock(false)
+    }
+  }
 
   const resetForm = () => {
     setNewAppointment({ patient_id: "", procedure_type: "Consulta", date: dateString, time: "", duration_minutes: 60, notes: "", doctor_name: "" })
@@ -280,10 +346,10 @@ export function AgendaView() {
     if (item.date === date && item.time.slice(0, 5) === time) return true
     setDetailError(null)
     setMovingBusy(true)
+    setOptimisticMoves(current => ({ ...current, [id]: { date, time } }))
     try {
       await updateAppointment(id, { date, time } as any)
       await refreshAppointments()
-      toast.success(`Consulta remarcada para ${date.split("-").reverse().join("/")} às ${time}.`)
       return true
     } catch (error) {
       const message = error instanceof Error ? error.message : "Não foi possível remarcar. Confira o horário."
@@ -291,7 +357,14 @@ export function AgendaView() {
       toast.error(message)
       return false
     }
-    finally { setMovingBusy(false) }
+    finally {
+      setOptimisticMoves(current => {
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
+      setMovingBusy(false)
+    }
   }
 
   const openDetails = (appointment: any) => {
@@ -436,31 +509,85 @@ export function AgendaView() {
 
   const WeekView = () => {
     if (!settingsRes || !weekData) return <div className="flex h-48 items-center justify-center" role="status"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /><span className="sr-only">Carregando agenda</span></div>
-    const workingStart = Number(settingsRes.data?.working_hours?.start?.split(":")[0] ?? 8)
-    const firstHour = Math.max(0, Math.min(workingStart, ...weekAppointments.map(a => Number(a.time?.slice(0, 2) || 7))))
-    const lastHour = Math.min(24, Math.max(closingHour, ...weekAppointments.map(a => Math.ceil((timeToMinutes(a.time) + (Number(a.duration_minutes) || 60)) / 60))))
+    const gridItems = [...weekAppointments, ...agendaBlocks.filter(block => !block.all_day && block.start_time && block.end_time).map(block => ({ time: block.start_time!, duration_minutes: timeToMinutes(block.end_time!) - timeToMinutes(block.start_time!) }))]
+    const { firstHour, lastHour } = getWeekGridHours(weekDays, gridItems, workingHours)
     const slotMinutes = 15
-    const slotHeight = 42
+    const slotHeight = 74
     const slots = Array.from({ length: Math.max(1, (lastHour - firstHour) * 60 / slotMinutes) }, (_, i) => formatMinutes(firstHour * 60 + i * slotMinutes))
     const gridHeight = slots.length * slotHeight
+    const movingAppointment = weekAppointments.find(item => item.id === movingId)
 
-    return <div className="overflow-x-auto overscroll-x-contain" aria-label="Agenda semanal">
+    return <div
+      className="overflow-x-auto overscroll-x-contain"
+      aria-label="Agenda semanal"
+      onPointerDown={event => {
+        if (event.pointerType !== "mouse" || event.button !== 0 || movingId || !(event.target as Element).closest("[data-agenda-slot]")) return
+        weekPanRef.current = { pointerId: event.pointerId, startX: event.clientX, startScrollLeft: event.currentTarget.scrollLeft, moved: false }
+      }}
+      onPointerMove={event => {
+        const pan = weekPanRef.current
+        if (!pan || pan.pointerId !== event.pointerId) return
+        const distance = event.clientX - pan.startX
+        if (!pan.moved && Math.abs(distance) < 6) return
+        if (!pan.moved) {
+          pan.moved = true
+          event.currentTarget.setPointerCapture(event.pointerId)
+        }
+        event.currentTarget.scrollLeft = pan.startScrollLeft - distance
+        event.preventDefault()
+      }}
+      onPointerUp={event => {
+        const pan = weekPanRef.current
+        if (!pan || pan.pointerId !== event.pointerId) return
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+        if (pan.moved) {
+          suppressWeekClickRef.current = true
+          window.setTimeout(() => { suppressWeekClickRef.current = false }, 0)
+        }
+        weekPanRef.current = null
+      }}
+      onPointerCancel={() => { weekPanRef.current = null }}
+      onClickCapture={event => {
+        if (!suppressWeekClickRef.current) return
+        event.preventDefault()
+        event.stopPropagation()
+        suppressWeekClickRef.current = false
+      }}
+    >
       <div className="flex w-max min-w-full">
         <div className="sticky left-0 z-20 w-16 shrink-0 bg-card shadow-[1px_0_0_0_var(--border)]">
           <div className="h-12 border-b border-border bg-card" />
           <div className="relative" style={{ height: gridHeight }}>
-            {slots.map((slot, index) => <span key={slot} className={`absolute right-2 text-xs text-muted-foreground ${index % 4 ? "opacity-80" : "font-semibold"}`} style={{ top: index * slotHeight + 3 }}>{slot}</span>)}
+            {slots.map((slot, index) => <span key={slot} className={`absolute right-2 text-sm text-muted-foreground ${index % 4 ? "opacity-80" : "font-semibold"}`} style={{ top: index * slotHeight + 4 }}>{slot}</span>)}
           </div>
+          <div className="relative h-7 border-t border-border"><span className="absolute right-2 top-1 text-sm font-semibold text-muted-foreground">{lastHour === 24 ? "24:00" : formatMinutes(lastHour * 60)}</span></div>
         </div>
         {weekDays.map(day => {
           const ds = toLocalDateString(day)
+          const dayHours = getDailyWorkingHours(day, workingHours)
           const dayAppointments = layoutAppointments(weekAppointments.filter(a => a.date === ds))
           return <div key={ds} className={`w-[216px] shrink-0 border-l border-border/70 sm:w-[232px] lg:flex-1 lg:min-w-[176px] ${ds === dateString ? "bg-primary/[0.06]" : ""}`}>
-            <button type="button" aria-pressed={ds === dateString} onClick={() => setSelectedDate(day)} className={`sticky top-0 z-10 flex h-12 w-full flex-col items-center justify-center border-b border-border text-sm font-semibold capitalize ${ds === dateString ? "bg-primary/15 text-primary ring-2 ring-inset ring-primary" : "bg-card text-foreground hover:bg-muted/70"}`}>
-              <span>{formatWeekday(day)}</span><span className="text-xs font-medium">{day.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" })}</span>
+            <button type="button" aria-pressed={ds === dateString} onClick={() => setSelectedDate(day)} className={`sticky top-0 z-10 flex h-12 w-full flex-col items-center justify-center border-b border-border text-base font-semibold capitalize ${ds === dateString ? "bg-primary/15 text-primary ring-2 ring-inset ring-primary" : "bg-card text-foreground hover:bg-muted/70"}`}>
+              <span>{formatWeekday(day)}</span><span className="text-sm font-medium">{day.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" })}</span>
             </button>
             <div className="relative" style={{ height: gridHeight }}>
-              {slots.map((slot, index) => <button key={slot} type="button" aria-label={`${day.toLocaleDateString("pt-BR")} às ${slot}`} onDragOver={event => { if (movingId) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (movingId) void moveAppointment(movingId, ds, slot) }} onClick={() => { if (movingId) void moveAppointment(movingId, ds, slot) }} className={`absolute inset-x-0 border-t text-left transition-colors ${index % 4 ? "border-border/35" : "border-border/70"} ${movingId ? "cursor-pointer hover:bg-primary/10" : "hover:bg-muted/40"}`} style={{ top: index * slotHeight, height: slotHeight }} />)}
+              {slots.map((slot, index) => {
+                const startMinutes = firstHour * 60 + index * slotMinutes
+                const isOpen = isWithinWorkingHours(day, startMinutes, slotMinutes, workingHours)
+                const canMoveHere = isWithinWorkingHours(day, startMinutes, Math.max(15, Number(movingAppointment?.duration_minutes) || 60), workingHours)
+                return <button key={slot} data-agenda-slot type="button" aria-label={`${day.toLocaleDateString("pt-BR")} às ${slot}`} disabled={Boolean(movingId) && !canMoveHere} onDragOver={event => { if (movingId && canMoveHere) event.preventDefault() }} onDrop={event => { event.preventDefault(); if (movingId && canMoveHere) void moveAppointment(movingId, ds, slot) }} onClick={() => { if (movingId && canMoveHere) void moveAppointment(movingId, ds, slot) }} className={`absolute inset-x-0 border-t text-left transition-colors ${index % 4 ? "border-border/35" : "border-border/70"} ${isOpen ? movingId ? "cursor-pointer hover:bg-primary/10" : "cursor-grab hover:bg-muted/40 active:cursor-grabbing" : "bg-muted/40"} ${movingId && !canMoveHere ? "cursor-not-allowed" : ""}`} style={{ top: index * slotHeight, height: slotHeight }} />
+              })}
+              {dayHours.closed && <span className="pointer-events-none absolute left-1/2 top-4 z-[1] -translate-x-1/2 rounded bg-card/90 px-2 py-1 text-sm font-medium text-muted-foreground">Fechado</span>}
+              {agendaBlocks.filter(block => block.date === ds).map(block => {
+                const start = block.all_day ? firstHour * 60 : timeToMinutes(block.start_time || `${firstHour}:00`)
+                const duration = block.all_day ? (lastHour - firstHour) * 60 : timeToMinutes(block.end_time || block.start_time || `${firstHour}:00`) - start
+                const top = block.all_day ? 4 : Math.max(0, ((start - firstHour * 60) / slotMinutes) * slotHeight + 2)
+                const height = block.all_day ? gridHeight - 4 : Math.max(34, duration / slotMinutes * slotHeight - 4)
+                return <button key={block.id} type="button" onClick={() => editBlock(block)} aria-label={`Compromisso: ${block.title}, ${block.all_day ? "dia inteiro" : `${block.start_time?.slice(0, 5)} às ${block.end_time?.slice(0, 5)}`}`} className={`absolute z-[1] overflow-hidden rounded-md border-l-4 border-l-orange-500 px-2 py-1.5 text-left text-orange-950 shadow-sm dark:text-orange-100 ${block.all_day ? "bg-orange-100/70 dark:bg-orange-950/40" : "bg-orange-100 dark:bg-orange-950/60"}`} style={{ top, height, left: "4px", right: "4px" }}>
+                  <strong className="block truncate text-sm leading-tight">{block.all_day ? "Dia inteiro · " : `${block.start_time?.slice(0, 5)} · `}{block.title}</strong>
+                  <span className="block truncate text-xs opacity-80">{block.scope === "dentist" ? block.doctor_name : block.resource_name || "Clínica"}</span>
+                </button>
+              })}
               {dayAppointments.map(({ appointment: appt, column, columns }) => {
                 const start = timeToMinutes(appt.time)
                 const duration = Math.max(15, Number(appt.duration_minutes) || 60)
@@ -468,13 +595,14 @@ export function AgendaView() {
                 const compact = duration < 45
                 const singleLine = duration < 30
                 const width = 100 / columns
-                return <button key={appt.id} type="button" draggable={canMove} onDragStart={event => { event.dataTransfer.effectAllowed = "move"; setMovingId(appt.id) }} onDragEnd={() => setMovingId(null)} onClick={() => openDetails(appt)} aria-label={`${appt.patient?.full_name || "Paciente"}, ${formatTime(appt.time)} a ${formatMinutes(start + duration)}, ${appt.doctor_name || "dentista não informado"}. ${appt.status || ""}`} className={`absolute z-[1] overflow-hidden rounded-md border-l-4 px-2 ${singleLine ? "py-0.5" : "py-1.5"} text-left shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-primary ${appointmentColor(appt.doctor_name || appt.patient?.full_name || "")} ${movingId === appt.id ? "ring-2 ring-primary ring-offset-1" : ""} ${["Cancelada", "Falta"].includes(appt.status) ? "opacity-50" : ""}`} style={{ top: Math.max(0, ((start - firstHour * 60) / slotMinutes) * slotHeight + 2), height: Math.max(singleLine ? 20 : 35, duration / slotMinutes * slotHeight - 4), left: `calc(${column * width}% + 4px)`, width: `calc(${width}% - 8px)` }}>
-                  {!singleLine && <span className="block truncate text-xs font-semibold leading-tight">{formatTime(appt.time)}–{formatMinutes(start + duration)}</span>}
-                  <strong className={`block truncate text-sm leading-tight ${singleLine ? "" : compact ? "mt-0.5" : "mt-1"}`}>{appt.patient?.full_name || "Paciente"}</strong>
-                  {!compact && <span className="mt-1 block truncate text-xs leading-tight opacity-80">{appt.doctor_name || appt.procedure_type || "Consulta"}</span>}
+                return <button key={appt.id} type="button" draggable={canMove} onDragStart={event => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", appt.id); setMovingId(appt.id) }} onDragEnd={() => setMovingId(null)} onClick={() => openDetails(appt)} aria-label={`${appt.patient?.full_name || "Paciente"}, ${formatTime(appt.time)} a ${formatMinutes(start + duration)}, ${appt.doctor_name || "dentista não informado"}. ${appt.status || ""}`} className={`absolute z-[1] overflow-hidden rounded-md border-l-4 px-2 ${singleLine ? "py-0.5" : "py-1.5"} text-left shadow-sm transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-primary ${appointmentColor(appt.doctor_name || appt.patient?.full_name || "")} ${movingId === appt.id ? "ring-2 ring-primary ring-offset-1" : ""} ${["Cancelada", "Falta"].includes(appt.status) ? "opacity-50" : ""}`} style={{ top: Math.max(0, ((start - firstHour * 60) / slotMinutes) * slotHeight + 2), height: Math.max(singleLine ? 20 : 35, duration / slotMinutes * slotHeight - 4), left: `calc(${column * width}% + 4px)`, width: `calc(${width}% - 8px)` }}>
+                  {!singleLine && <span className="block truncate text-sm font-semibold leading-tight">{formatTime(appt.time)}–{formatMinutes(start + duration)}</span>}
+                  <strong className={`block truncate text-base leading-tight ${singleLine ? "" : compact ? "mt-0.5" : "mt-1"}`}>{appt.patient?.full_name || "Paciente"}</strong>
+                  {!compact && <span className="mt-1 block truncate text-sm leading-tight opacity-80">{appt.doctor_name || appt.procedure_type || "Consulta"}</span>}
                 </button>
               })}
             </div>
+            <div className="h-7 border-t border-border" />
           </div>
         })}
       </div>
@@ -725,10 +853,48 @@ export function AgendaView() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+              <Button type="button" variant="outline" className="gap-2" onClick={startNewBlock}>
+                <CalendarClock className="h-4 w-4" /><span>Bloquear horário</span>
+              </Button>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={isBlockDialogOpen} onOpenChange={setIsBlockDialogOpen}>
+        <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] overflow-y-auto sm:max-w-[620px]">
+          <DialogHeader>
+            <DialogTitle>{editingBlockId ? "Editar compromisso" : "Bloquear horário"}</DialogTitle>
+            <DialogDescription>Reserve um período para um compromisso do dentista ou da clínica. Nenhum paciente precisa ser cadastrado.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-5 py-2">
+            {blockError && <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{blockError}</div>}
+            <div className="grid gap-2">
+              <Label htmlFor="agenda-block-title">Nome do compromisso *</Label>
+              <Input id="agenda-block-title" autoFocus placeholder="Ex.: Viagem, reunião, compromisso pessoal" maxLength={160} value={blockForm.title} onChange={event => setBlockForm({ ...blockForm, title: event.target.value })} />
+            </div>
+            <fieldset className="grid gap-3">
+              <legend className="text-sm font-medium">Bloquear para</legend>
+              <RadioGroup value={blockForm.scope} onValueChange={value => setBlockForm({ ...blockForm, scope: value as "dentist" | "clinic" })} className="grid grid-cols-2 gap-3">
+                <label htmlFor="agenda-block-dentist" className="flex cursor-pointer items-center gap-2 rounded-md border p-3"><RadioGroupItem value="dentist" id="agenda-block-dentist" /><span>Dentista</span></label>
+                <label htmlFor="agenda-block-clinic" className="flex cursor-pointer items-center gap-2 rounded-md border p-3"><RadioGroupItem value="clinic" id="agenda-block-clinic" /><span>Clínica inteira</span></label>
+              </RadioGroup>
+            </fieldset>
+            {blockForm.scope === "dentist" ? <div className="grid gap-2"><Label>Dentista *</Label>{staff.filter((member: any) => member.is_active).length ? <Select value={blockForm.doctor_name} onValueChange={value => setBlockForm({ ...blockForm, doctor_name: value })}><SelectTrigger><SelectValue placeholder="Selecione o dentista" /></SelectTrigger><SelectContent>{staff.filter((member: any) => member.is_active).map((member: any) => <SelectItem key={member.id} value={member.full_name}>{member.full_name}</SelectItem>)}</SelectContent></Select> : <Input aria-label="Dentista" placeholder="Nome do dentista" value={blockForm.doctor_name} onChange={event => setBlockForm({ ...blockForm, doctor_name: event.target.value })} />}</div> : <div className="grid gap-2"><Label htmlFor="agenda-block-resource">Clínica, cadeira ou consultório</Label><Input id="agenda-block-resource" placeholder="Ex.: Consultório 01 - Adulto" value={blockForm.resource_name} onChange={event => setBlockForm({ ...blockForm, resource_name: event.target.value })} /></div>}
+            <div className="grid gap-2"><Label htmlFor="agenda-block-notes">Observações</Label><Textarea id="agenda-block-notes" placeholder="Detalhes opcionais" maxLength={2000} rows={3} value={blockForm.notes} onChange={event => setBlockForm({ ...blockForm, notes: event.target.value })} /></div>
+            <div className="grid gap-3">
+              <Label htmlFor="agenda-block-date">Data *</Label>
+              <div className="flex flex-wrap items-center gap-3"><Input id="agenda-block-date" type="date" className="w-auto" value={blockForm.date} onChange={event => setBlockForm({ ...blockForm, date: event.target.value })} /><label className="flex items-center gap-2 text-sm"><Checkbox checked={blockForm.all_day} onCheckedChange={checked => setBlockForm({ ...blockForm, all_day: checked === true })} />Dia inteiro</label></div>
+            </div>
+            {!blockForm.all_day && <div className="grid grid-cols-2 gap-3"><div className="grid gap-2"><Label htmlFor="agenda-block-start">Início *</Label><Input id="agenda-block-start" type="time" step={900} value={blockForm.start_time} onChange={event => setBlockForm({ ...blockForm, start_time: event.target.value })} /></div><div className="grid gap-2"><Label htmlFor="agenda-block-end">Fim *</Label><Input id="agenda-block-end" type="time" step={900} value={blockForm.end_time} onChange={event => setBlockForm({ ...blockForm, end_time: event.target.value })} /></div></div>}
+          </div>
+          <DialogFooter className="flex-col-reverse sm:flex-row">
+            {editingBlockId && <Button type="button" variant="destructive" className="sm:mr-auto" disabled={isSavingBlock} onClick={() => void deleteBlock()}><Trash2 className="mr-2 h-4 w-4" />Excluir</Button>}
+            <Button type="button" variant="outline" onClick={() => setIsBlockDialogOpen(false)}>Cancelar</Button>
+            <Button type="button" disabled={isSavingBlock} onClick={() => void saveBlock()}>{isSavingBlock ? "Salvando..." : editingBlockId ? "Salvar alterações" : "Salvar compromisso"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={datePickerOpen} onOpenChange={setDatePickerOpen}>
         <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[440px]">
@@ -870,6 +1036,7 @@ export function AgendaView() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
+                {agendaBlocks.filter(block => block.date === dateString).length > 0 && <div className="space-y-2 border-b p-4">{agendaBlocks.filter(block => block.date === dateString).map(block => <button key={block.id} type="button" onClick={() => editBlock(block)} className="flex w-full items-center justify-between gap-3 rounded-md border-l-4 border-l-orange-500 bg-orange-50 p-3 text-left text-orange-950 dark:bg-orange-950/40 dark:text-orange-100"><span><strong className="block">{block.title}</strong><span className="text-sm">{block.all_day ? "Dia inteiro" : `${block.start_time?.slice(0, 5)}–${block.end_time?.slice(0, 5)}`} · {block.scope === "dentist" ? block.doctor_name : block.resource_name || "Clínica"}</span></span><span className="text-xs">Editar</span></button>)}</div>}
                 {isLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

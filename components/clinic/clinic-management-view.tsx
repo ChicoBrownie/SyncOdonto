@@ -140,6 +140,9 @@ export function ClinicManagementView({ initialTab = "equipe" }: { initialTab?: C
 
   const handleSaveSettings = async () => {
     if (!settingsForm.clinic_name.trim()) { toast.error("Nome da clínica é obrigatório."); return }
+    const openDays = Object.values(settingsForm.hours).filter(day => !day.closed)
+    const start = openDays.map(day => day.start).sort()[0] || "08:00"
+    const end = openDays.map(day => day.end).sort().at(-1) || "18:00"
     setIsSavingSettings(true)
     try {
       await saveClinicSettings({
@@ -148,7 +151,7 @@ export function ClinicManagementView({ initialTab = "equipe" }: { initialTab?: C
         email: settingsForm.email || null,
         address: settingsForm.address || null,
         cnpj: settingsForm.cnpj || null,
-        working_hours: { start: "08:00", end: "18:00", days: settingsForm.hours },
+        working_hours: { start, end, days: settingsForm.hours },
       } as any)
       toast.success("Configurações salvas com sucesso!")
       mutateSettings()
